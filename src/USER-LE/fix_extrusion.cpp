@@ -42,7 +42,7 @@ FixExtrusion::FixExtrusion(LAMMPS *lmp, int narg, char **arg) :
   distsq_c(NULL), distsq_b(NULL), probability(NULL), broken(NULL), created(NULL), copy(NULL),
   random(NULL), bondcount(NULL), recreate(NULL)
 {
-  if (narg < 9) error->all(FLERR,"Illegal fix extrusion command");
+  if (narg < 8) error->all(FLERR,"Illegal fix extrusion command");
 
   MPI_Comm_rank(world,&me);
   MPI_Comm_size(world,&nprocs);
@@ -57,8 +57,6 @@ FixExtrusion::FixExtrusion(LAMMPS *lmp, int narg, char **arg) :
   global_freq = 1;
   extvector = 0;
 
-  //btype = utils::inumeric(FLERR,arg[4]);
-  //cutoff = utils::numeric(FLERR,arg[5],false,lmp);
   neutral_type = utils::inumeric(FLERR,arg[4],false,lmp);
   ctcf_left = utils::inumeric(FLERR,arg[5],false,lmp);
   ctcf_right = utils::inumeric(FLERR,arg[6],false,lmp);
@@ -70,17 +68,13 @@ FixExtrusion::FixExtrusion(LAMMPS *lmp, int narg, char **arg) :
     error->all(FLERR,"Invalid atom type (CTCF) in fix extrusion command");
 
   through_prob = utils::numeric(FLERR,arg[7],false,lmp);
-  if (through_prob <=0 || through_prob>1)
+  if (through_prob <0 || through_prob>1)
   error->all(FLERR,"Invalid probability to pass through CTCF in fix extrusion command");
 
   btype = utils::inumeric(FLERR,arg[8],false,lmp);
     if (btype < 1 || btype > atom->nbondtypes)
     error->all(FLERR,"Invalid atom type in fix extrusion command");
   
-  
-  chain_length = utils::inumeric(FLERR,arg[9],false,lmp);
-    if (chain_length < 1 || chain_length > atom->natoms)
-    error->all(FLERR,"Invalid chain_length in fix extrusion command");
   
   // error check
 
@@ -159,7 +153,6 @@ int FixExtrusion::setmask()
 {
   int mask = 0;
   mask |= POST_INTEGRATE;
-  //mask |= POST_INTEGRATE_RESPA;
   return mask;
 }
 
@@ -272,7 +265,7 @@ void FixExtrusion::post_integrate()
     }
   }
 
-  commflag = 1;
+  //commflag = 1;
   //comm->reverse_comm_fix(this,1);
 
   // check that all procs have needed ghost atoms within ghost cutoff
@@ -313,8 +306,6 @@ void FixExtrusion::post_integrate()
     memory->create(distsq_b,nmax,"extrusion:distsq_b");
   }
 
-  //int nlocal = atom->nlocal;
-  //int nall = atom->nlocal + atom->nghost;
 
   for (i = 0; i < nall; i++) {
     to_remove[i] = 0;
@@ -336,9 +327,6 @@ void FixExtrusion::post_integrate()
   int nbondlist = neighbor->nbondlist;
   int mi;
 
-  //int **bond_type = atom->bond_type;
-  //tagint **bond_atom = atom->bond_atom;//
-  //int *num_bond = atom->num_bond;//
   int **nspecial = atom->nspecial;//
   tagint **special = atom->special;//
 
@@ -346,8 +334,6 @@ void FixExtrusion::post_integrate()
   bool left_end_moving, right_end_moving;
   bool alreadymet = false;
 
-  //int newton_bond = force->newton_bond;
-  //if (!newton_bond) return;
 
 //new lines for extrusion
   for (int numbnd = 0; numbnd < nbondlist; numbnd++) {
@@ -373,46 +359,34 @@ void FixExtrusion::post_integrate()
     left_end_moving = false;
     right_end_moving = false;
     
-
-    //   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    //   !!!                                                                             !!!
-    //   !!! I should add energetic criteria to shift the bond depending on the distance !!!
-    //   !!!                                                                             !!!
-    //   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-      //compare global atom numbers
-      //try to move left atom
-      //###############################################################################
-      //###                                                                        ####
-      //### Get the partner id, exchange it, in the new loop over the nall,        ####
-      //### then add/remove bonds and store it in the finalpartner.                ####
-      //### Only then calculate if number of creation equals to number of breaks.  ####
-      //###                                                                        ####
-      //###############################################################################
-    //printf("i1 and i2: %d %d\n", tag[i1], tag[i2]); 
     if (
+      num_bond[i1] == 1 ||
+      num_bond[i2] == 1 ||
       num_bond[i1] == 0 ||
       num_bond[i2] == 0 ||
-      num_bond[atom->map(tag[i2]+1)] == 0 ||
-      num_bond[atom->map(tag[i1]-1)] == 0 ||
-      bondcount[i1] == 0 ||
-      bondcount[i2] == 0) continue; // check if bead on another proc
-      
+      bondcount[i1] != 1 ||
+      bondcount[i2] != 1 )  continue; // check if beads i1 and i2 has 1 or 0 bonds at all or they do not have bond to shift. Just a sanity check.
     if (
     num_bond[atom->map(tag[i1] - 1)] - bondcount[atom->map(tag[i1] - 1)] == 2 &&
     bondcount[atom->map(tag[i1] - 1)] == 0 &&
+    (atom->type[atom->map(tag[i1] - 1)] == ctcf_left ||
+     atom->type[atom->map(tag[i1] - 1)] == ctcf_right ||
+     atom->type[atom->map(tag[i1] - 1)] == neutral_type) &&
     (atom->type[atom->map(tag[i1] - 1)] != ctcf_left || through_prob > random->uniform())) {
       local_left = atom->map(tag[i1] - 1);
       if (
       num_bond[atom->map(tag[i2] + 1)] - bondcount[atom->map(tag[i2] + 1)] == 2 &&
       bondcount[atom->map(tag[i2] + 1)] == 0 &&
-      atom->type[atom->map(tag[i2] + 1)] != ctcf_right) {
+      (atom->type[atom->map(tag[i2] + 1)] == ctcf_left ||
+       atom->type[atom->map(tag[i2] + 1)] == ctcf_right ||
+       atom->type[atom->map(tag[i2] + 1)] == neutral_type) &&
+      (atom->type[atom->map(tag[i2] + 1)] != ctcf_right || through_prob > random->uniform())) { // move left and right
         local_right = atom->map(tag[i2] + 1);
         delx = x[local_left][0] - x[local_right][0];
         dely = x[local_left][1] - x[local_right][1];
         delz = x[local_left][2] - x[local_right][2];
         rsq = delx*delx + dely*dely + delz*delz;
-        //printf("Energy to create: %f\n", 20*rsq);
-        if (rsq > distsq_c[local_left] && rsq > distsq_c[local_right]) continue;
+        if (rsq >= distsq_c[local_left] && rsq >= distsq_c[local_right]) continue;
         if (rsq < distsq_c[local_left]) {
           distsq_c[local_left] = rsq;
           to_add[local_left] = tag[local_right];
@@ -421,28 +395,17 @@ void FixExtrusion::post_integrate()
           distsq_c[local_right] = rsq;
           to_add[local_right] = tag[local_left];
         }
-        //printf("+++ %d\t%d\t%f\t%d\n", to_add[local_left], to_add[local_right], rsq, me);
-        delx = x[i1][0] - x[i2][0];
-        dely = x[i1][1] - x[i2][1];
-        delz = x[i1][2] - x[i2][2];
-        rsq = delx*delx + dely*dely + delz*delz;
-        if (rsq > distsq_b[i1]) { 
           distsq_b[i1] = rsq;
           to_remove[i1]=tag[i2];
-        }
-        if (rsq > distsq_b[i2]) {
           distsq_b[i2] = rsq;
           to_remove[i2]=tag[i1];
-        }
-        //printf("--- %d\t%d\t%f\t%d\n", to_remove[i1], to_remove[i2], rsq, me);
       }
       else { // left move, right not
         delx = x[local_left][0] - x[i2][0];
         dely = x[local_left][1] - x[i2][1];
         delz = x[local_left][2] - x[i2][2];
         rsq = delx*delx + dely*dely + delz*delz;
-        //printf("Energy to create: %f\n", 20*rsq);
-        if (rsq > distsq_c[local_left] && rsq > distsq_c[i2]) continue;
+        if (rsq >= distsq_c[local_left]) continue;
         if (rsq < distsq_c[local_left]) {
           distsq_c[local_left] = rsq;
           to_add[local_left] = tag[i2];
@@ -451,518 +414,118 @@ void FixExtrusion::post_integrate()
           distsq_c[i2] = rsq;
           to_add[i2] = tag[local_left];
         }
-        else printf ("check me ASAP!!!\n");
+        else printf ("The default distance between local_left and i2 stored at i2 is not var. BIG\n");
 
-        //printf("+++ %d\t%d\t%f\t%d\n", to_add[local_left], to_add[i2], rsq, me);
-        delx = x[i1][0] - x[i2][0];
-        dely = x[i1][1] - x[i2][1];
-        delz = x[i1][2] - x[i2][2];
-        rsq = delx*delx + dely*dely + delz*delz;
-        if (rsq > distsq_b[i1]) { 
           distsq_b[i1] = rsq;
           to_remove[i1]=tag[i2];
-        }
-        if (rsq > distsq_b[i2]) {
           distsq_b[i2] = rsq;
           to_remove[i2]=tag[i1];
-        }
-        //printf("--- %d\t%d\t%f\t%d\n", to_remove[i1], to_remove[i2], rsq, me);
       }
     }
     else if (
     num_bond[atom->map(tag[i2] + 1)] - bondcount[atom->map(tag[i2] + 1)] == 2 &&
     bondcount[atom->map(tag[i2] + 1)] == 0 &&
+    (atom->type[atom->map(tag[i2] + 1)] == ctcf_left ||
+     atom->type[atom->map(tag[i2] + 1)] == ctcf_right ||
+     atom->type[atom->map(tag[i2] + 1)] == neutral_type) &&
     (atom->type[atom->map(tag[i2] + 1)] != ctcf_right || through_prob > random->uniform())) {
       local_right = atom->map(tag[i2] + 1);
       delx = x[i1][0] - x[local_right][0];
       dely = x[i1][1] - x[local_right][1];
       delz = x[i1][2] - x[local_right][2];
       rsq = delx*delx + dely*dely + delz*delz;
-      //printf("Energy to create: %f\n", 20*rsq);
-      if (rsq > distsq_c[i1] && rsq > distsq_c[local_right]) continue;
+      if (rsq >= distsq_c[local_right]) continue;
       if (distsq_c[i1] == BIG) {
         distsq_c[i1] = rsq;
         to_add[i1] = tag[local_right];
       }
-      else printf("right move left not, problem!\n");
+      else printf("The default distance between local_right and i1 stored at i1 is not var. BIG\n");
       if (rsq < distsq_c[local_right]) {
         distsq_c[local_right] = rsq;
         to_add[local_right] = tag[i1];
       }
-      //printf("+++ %d\t%d\t%f\t%d\n", to_add[i1], to_add[local_right], rsq, me);
-      delx = x[i1][0] - x[i2][0];
-      dely = x[i1][1] - x[i2][1];
-      delz = x[i1][2] - x[i2][2];
-      rsq = delx*delx + dely*dely + delz*delz;
-
-      if (rsq > distsq_b[i1]) { 
         distsq_b[i1] = rsq;
         to_remove[i1]=tag[i2];
-      }
-      if (rsq > distsq_b[i2]) {
         distsq_b[i2] = rsq;
         to_remove[i2]=tag[i1];
-      }
-      //printf("--- %d\t%d\t%f\t%d\n", to_remove[i1], to_remove[i2], rsq, me);
     }
   }
-/*
-  // reverse comm of partner info
-  commflag=2;
-  comm->reverse_comm_fix(this);
+    bool iisleft = false;
+    for (i=0; i<nlocal; i++) {
+        if (to_add[i] == 0) continue;
+        j = atom->map(to_add[i]);
+        if (to_add[i] != tag[j]) printf("local <-> global ids:\n%d\t%d\t%d\t%d\n", 
+            to_add[i], tag[j], tag[atom->map(to_add[i])], tag[atom->map(tag[j])]);
+        if (to_add[j] != tag[i]) {
+            if (tag[i] < tag[j]) {
+                lb = atom->map(tag[i]+1);
+                rb = atom->map(tag[j]-1);
+                iisleft=true;
+            }
+            else if (tag[i] > tag[j]) {
+                lb = atom->map(tag[j]+1);
+                rb = atom->map(tag[i]-1);
+                iisleft = false;
+            }
+            if (iisleft) {
+                if (tag[lb] == to_remove[rb] && to_remove[lb] == tag[rb]) {
+                    to_remove[lb] = 0;
+                    to_remove[rb] = 0;
+                }
+                else if (tag[i] == to_remove[rb] && to_remove[i] == tag[rb]) {
+                    to_remove[i] = 0;
+                    to_remove[rb] = 0;
+                }
+                else if (tag[lb] == to_remove[j] && to_remove[lb] == tag[j]) {
+                    to_remove[lb] = 0;
+                    to_remove[j] = 0;
+                }
+                else if (tag[i] == to_remove[j] && tag[j] == to_remove[i]) {
+                    to_remove[i] = 0;
+                    to_remove[j] = 0;
+                }
+                else {
+                    printf("Broken bond is missing\n%d\t%d\n%d\t%d\t%d\t%d\n%d\t%d\t%d\t%d\n", tag[i], to_add[i], 
+                          tag[lb], tag[rb], tag[i], tag[j], 
+                          to_remove[lb], to_remove[rb], to_remove[i], to_remove[j]);
+                }
+            }
+            else {
+                if (tag[lb] == to_remove[rb] && to_remove[lb] == tag[rb]) {
+                    to_remove[lb] = 0;
+                    to_remove[rb] = 0;
+                }
+                else if (tag[i] == to_remove[lb] && to_remove[i] == tag[lb]) {
+                    to_remove[i] = 0;
+                    to_remove[lb] = 0;
+                }
+                else if (tag[rb] == to_remove[j] && to_remove[rb] == tag[j]) {
+                to_remove[rb] = 0;
+                to_remove[j] = 0;
+                }
+                else if (tag[i] == to_remove[j] && tag[j] == to_remove[i]) {
+                    to_remove[i] = 0;
+                    to_remove[j] = 0;
+                }
+                else {
+                    printf("Broken bond is missing\n%d\t%d\n%d\t%d\t%d\t%d\n%d\t%d\t%d\t%d\n", tag[i], to_add[i],
+                       tag[lb], tag[rb], tag[i], tag[j],
+                       to_remove[lb], to_remove[rb], to_remove[i], to_remove[j]);
+                }
+            }
+        }
+    }
   
-  for (i = 0; i < nall; i++) {
-    if (to_remove[i] != 0 && to_remove[atom->map(to_remove[i])] == tag[i] && me==16) 
-      printf("2.5---- recheck to_remove %d\t%d\t%d\n", to_remove[i], to_remove[atom->map(to_remove[i])], me);
-  }
-  for (i = 0; i < nall; i++) {
-    if (to_add[i] != 0 && to_add[atom->map(to_add[i])] == tag[i] && me==16) 
-      printf("2.5++++ recheck to_add %d\t%d\t%d\n", to_add[i], to_add[atom->map(to_add[i])], me);
-  }
-
-  for (i = 0; i < nall; i++) {
-    if (recreate[i] != 0) 
-    {
-      recreate[atom->map(recreate[i])] = tag[i];
-      printf ("recreate %d isn't zero at %d\n", tag[i], me);
-    }
-  }
-*/
-//  commflag = 23;
-//  comm->reverse_comm_fix(this,1);
-
-//  for (i = 0; i < nall; i++) {
-//    if (recreate[i] != 0) recreate[atom->map(recreate[i])] = tag[i];
-//  }
-/*
-// nullify both atoms because you have already checked them 
-  for (i = 0; i < nlocal; i++) {
-    if (recreate[i] == 0) continue;
-    if (recreate[i] < tag[i]) {
-      lb = recreate[i];
-      rb = tag[i];
-      l_flag=false;
-    }
-    else {
-      lb = tag[i];
-      rb = recreate[i];
-      l_flag=true;
-    }
-    //if (l_flag) {
-      if (to_remove[atom->map(lb+1)] - rb == 0 || to_remove[atom->map(lb+1)] - rb == -1) {
-        to_remove[atom->map(lb+1)] = 0;
-        distsq_b[atom->map(lb+1)] = BIG;
-        to_remove[atom->map(rb)] = 0;
-        distsq_b[atom->map(rb)] = BIG;
-      } 
-      else if (to_remove[atom->map(lb)] - rb == -1) {
-        to_remove[atom->map(lb)] = 0;
-        distsq_b[atom->map(lb)] = BIG;
-        to_remove[atom->map(rb)] = 0;
-        distsq_b[atom->map(rb)] = BIG;
-      }
-    }
-    else {
-      if (lb - to_remove[atom->map(rb-1)] == 0 || lb - to_remove[atom->map(rb-1)] == -1) {
-        to_remove[atom->map(rb-1)] = 0;
-        distsq_b[atom->map(rb-1)] = BIG;
-        to_remove[atom->map(lb)] = 0;
-        distsq_b[atom->map(lb)] = BIG;
-      }
-      else if (lb - to_remove[atom->map(rb)] == -1) {
-        to_remove[atom->map(rb)] = 0;
-        distsq_b[atom->map(rb)] = BIG;
-        to_remove[atom->map(lb)] = 0;
-        distsq_b[atom->map(lb)] = BIG;
-      }
-    }
-  //}
-  commflag=3;
-  comm->reverse_comm_fix(this);
-  commflag = 92;
-  comm->forward_comm_fix(this,1);
-  commflag = 91;
-  comm->forward_comm_fix(this,1);
-  /*
-  for (i = 0; i < nall; i++) {
-    if (to_remove[i] != 0 && to_remove[atom->map(to_remove[i])] == tag[i] && me==16) 
-      printf("2.7---- recheck to_remove %d\t%d\t%d\n", to_remove[i], to_remove[atom->map(to_remove[i])], me);
-  }
-  for (i = 0; i < nall; i++) {
-    if (to_add[i] != 0 && to_add[atom->map(to_add[i])] == tag[i] && me==16) 
-      printf("2.7++++ recheck to_add %d\t%d\t%d\n", to_add[i], to_add[atom->map(to_add[i])], me);
-  }
+//  commflag=2;
+//  comm->reverse_comm_fix(this);
+//  commflag=3;
+//  comm->reverse_comm_fix(this);
   
-//final check starting from to_add
-  for (i = 0; i < nlocal; i++) {
-    if (to_add[i] != 0) {
-      if (tag[i] == to_add[atom->map(to_add[i])]) {
-        if (to_add[i] < tag[i]) {
-          lb = to_add[i];
-          rb = tag[i];
-          l_flag=false;
-        }
-        else {
-          lb = tag[i];
-          rb = to_add[i];
-          l_flag=true;
-        }
-        if (
-          (to_remove[atom->map(lb + 1)] == rb &&      to_remove[atom->map(rb)] == lb + 1) || 
-          (to_remove[atom->map(lb + 1)] == rb - 1 &&  to_remove[atom->map(rb - 1)] == lb + 1) || 
-          (to_remove[atom->map(lb)] == rb - 1 &&      to_remove[atom->map(rb - 1)] == lb)) {
-          continue;
-        }
-        else {
-          to_add[atom->map(to_add[i])] = 0;
-          distsq_c[atom->map(to_add[i])] = 0;
-          to_add[i] = 0;
-          distsq_c[i] = 0;
-        }
-      }
-      else {
-        to_add[i] = 0;
-        distsq_c[i] = 0;
-      }
-    }
-  }
-  /*
-  for (i = 0; i < nall; i++) {
-    if (to_remove[i] != 0 && to_remove[atom->map(to_remove[i])] == tag[i] && me==16) 
-      printf("2.8---- recheck to_remove %d\t%d\t%d\n", to_remove[i], to_remove[atom->map(to_remove[i])], me);
-  }
-  for (i = 0; i < nall; i++) {
-    if (to_add[i] != 0 && to_add[atom->map(to_add[i])] == tag[i] && me==16) 
-      printf("2.8++++ recheck to_add %d\t%d\t%d\n", to_add[i], to_add[atom->map(to_add[i])], me);
-  }
-
-//final check starting from to_remove
-  for (i = 0; i < nlocal; i++) {
-    if (to_remove[i] != 0) {
-      if (tag[i] == to_remove[atom->map(to_remove[i])]) {
-        if (to_remove[i] < tag[i]) {
-          lb = to_remove[i];
-          rb = tag[i];
-          l_flag=false;
-        }
-        else {
-          lb = tag[i];
-          rb = to_remove[i];
-          l_flag=true;
-        }
-        if (
-          (to_add[atom->map(lb - 1)] == rb &&     to_add[atom->map(rb)] == lb - 1) ||
-          (to_add[atom->map(lb - 1)] == rb + 1 && to_add[atom->map(rb + 1)] == lb - 1) ||
-          (to_add[atom->map(lb)] == rb + 1 &&     to_add[atom->map(rb + 1)] == lb)) {
-          continue; // pair to_remove has complementary pair to_add
-        }
-        else {
-          to_remove[atom->map(to_remove[i])] = 0;
-          distsq_b[atom->map(to_remove[i])] = BIG;
-          to_remove[i] = 0;
-          distsq_b[i] = BIG;
-        }        
-      }
-      else {
-        to_remove[i] = 0;
-        distsq_b[i] = BIG;
-      }
-    }
-  }
-  commflag=3;
-  comm->reverse_comm_fix(this);
-  commflag=2;
-  comm->reverse_comm_fix(this);
-  /*
-  for (i = 0; i < nall; i++) {
-    if (to_remove[i] != 0 && to_remove[atom->map(to_remove[i])] == tag[i] && me==16) 
-      printf("2.9---- recheck to_remove %d\t%d\t%d\n", to_remove[i], to_remove[atom->map(to_remove[i])], me);
-  }
-  for (i = 0; i < nall; i++) {
-    if (to_add[i] != 0 && to_add[atom->map(to_add[i])] == tag[i] && me==16) 
-      printf("2.9++++ recheck to_add %d\t%d\t%d\n", to_add[i], to_add[atom->map(to_add[i])], me);
-  }
-
-/*
-  for (i = 0; i < nlocal; i++) {
-    if (to_remove[i] != 0 && to_remove[atom->map(to_remove[i])] == tag[i]) {
-      //printf("2---- recheck to_remove %d\t%d\n", to_remove[i], to_remove[atom->map(to_remove[i])]);
-      if (to_remove[i] < tag[i]) {
-        lb = to_remove[i];
-        rb = tag[i];
-        l_flag = false;
-      }
-      else {
-        lb = tag[i];
-        rb = to_remove[i];
-        l_flag = true;
-      }
-      if (l_flag) {
-        if (rb - to_add[atom->map(lb-1)] == 0 || rb - to_add[atom->map(lb-1)] == -1) {
-          to_add[atom->map(lb-1)] = 0;
-          distsq_c[atom->map(lb-1)] = BIG;
-        }
-        else if (rb - to_add[atom->map(lb)] == -1) {
-          to_add[atom->map(lb)] = 0;
-          distsq_c[atom->map(lb)] = BIG;
-        }
-      }
-      else {
-        if (to_add[atom->map(rb+1)] - lb == 0 || to_add[atom->map(rb+1)] - lb == -1) {
-          to_add[atom->map(rb+1)] = 0;
-          distsq_c[atom->map(rb+1)] = BIG;
-        }
-        else if (to_add[atom->map(rb)] - lb == -1) {
-          to_add[atom->map(rb)] = 0;
-          distsq_c[atom->map(rb)] = BIG;
-        }
-      }
-        (rb - to_add[atom->map(lb-1)] == 0 || rb - to_add[atom->map(lb-1)] == -1) && 
-        (to_add[atom->map(rb+1)] - lb == 0 || to_add[atom->map(rb+1)] - lb == -1)) {
-        if (to_add[atom->map(lb-1)] == rb && to_add[atom->map(rb+1)] == lb) {
-          if (l_flag) {
-            to_remove[atom->map(to_remove[i])] = 0;
-            distsq_b[atom->map(to_remove[i])] = 0;
-            to_remove[i] = 0;
-            distsq_b[i] = 0;
-            to_add[atom->map(to_add[atom->map(lb-1)])] = 0;
-            distsq_c[atom->map(to_add[atom->map(lb-1)])] = BIG;
-            to_add[atom->map(lb-1)] = 0;
-            distsq_c[atom->map(lb-1)] = BIG;
-          }
-          else {
-            to_remove[atom->map(to_remove[i])] = 0;
-            distsq_b[atom->map(to_remove[i])] = 0;
-            to_remove[i] = 0;
-            distsq_b[i] = 0;
-            to_add[atom->map(to_add[atom->map(rb+1)])] = 0;
-            distsq_c[atom->map(to_add[atom->map(rb+1)])] = BIG;
-            to_add[atom->map(rb+1)] = 0;
-            distsq_c[atom->map(rb+1)] = BIG;
-          }
-          continue;
-        }
-        //printf("2.5---+ recheck to_add %d\t%d\t%d\t%d\n", lb, rb, to_add[atom->map(lb-1)], to_add[atom->map(rb+1)]);
-        continue;
-      }
-      else if (
-        (rb - to_add[atom->map(lb-1)] == 0 || rb - to_add[atom->map(lb-1)] == -1) && 
-        (to_add[atom->map(rb)] - lb == 0 || to_add[atom->map(rb)] - lb == -1)) {
-        if (to_add[atom->map(lb-1)] == rb && to_add[atom->map(rb+1)] == lb) {
-          if (l_flag) {
-            to_remove[atom->map(to_remove[i])] = 0;
-            distsq_b[atom->map(to_remove[i])] = 0;
-            to_remove[i] = 0;
-            distsq_b[i] = 0;
-            to_add[atom->map(to_add[atom->map(lb-1)])] = 0;
-            distsq_c[atom->map(to_add[atom->map(lb-1)])] = BIG;
-            to_add[atom->map(lb-1)] = 0;
-            distsq_c[atom->map(lb-1)] = BIG;
-          }
-          else {
-            to_remove[atom->map(to_remove[i])] = 0;
-            distsq_b[atom->map(to_remove[i])] = 0;
-            to_remove[i] = 0;
-            distsq_b[i] = 0;
-            to_add[atom->map(to_add[atom->map(rb)])] = 0;
-            distsq_c[atom->map(to_add[atom->map(rb)])] = BIG;
-            to_add[atom->map(rb)] = 0;
-            distsq_c[atom->map(rb)] = BIG;
-          }
-          continue;
-        }
-        //printf("2.5---+ recheck to_add %d\t%d\t%d\t%d\n", lb, rb, to_add[atom->map(lb-1)], to_add[atom->map(rb)]);
-        continue;
-      }
-      else if (
-        (rb - to_add[atom->map(lb)] == 0 || rb - to_add[atom->map(lb)] == -1) && 
-        (to_add[atom->map(rb+1)] - lb == 0 || to_add[atom->map(rb+1)] - lb == -1)) {
-          if (to_add[atom->map(lb-1)] == rb && to_add[atom->map(rb+1)] == lb) {
-          if (l_flag) {
-            to_remove[atom->map(to_remove[i])] = 0;
-            distsq_b[atom->map(to_remove[i])] = 0;
-            to_remove[i] = 0;
-            distsq_b[i] = 0;
-            to_add[atom->map(to_add[atom->map(lb)])] = 0;
-            distsq_c[atom->map(to_add[atom->map(lb)])] = BIG;
-            to_add[atom->map(lb)] = 0;
-            distsq_c[atom->map(lb)] = BIG;
-          }
-          else {
-            to_remove[atom->map(to_remove[i])] = 0;
-            distsq_b[atom->map(to_remove[i])] = 0;
-            to_remove[i] = 0;
-            distsq_b[i] = 0;
-            to_add[atom->map(to_add[atom->map(rb+1)])] = 0;
-            distsq_c[atom->map(to_add[atom->map(rb+1)])] = BIG;
-            to_add[atom->map(rb+1)] = 0;
-            distsq_c[atom->map(rb+1)] = BIG;
-          }
-          continue;
-        }
-        //printf("2.5---+ recheck to_add %d\t%d\t%d\t%d\n", lb, rb, to_add[atom->map(lb)], to_add[atom->map(rb+1)]);
-        continue;
-      }
-      else {
-        to_remove[i] = 0;
-        distsq_b[i] = 0;
-      }
-    }
-  }
-  
-  for (i = 0; i < nall; i++) {
-    if (to_add[i] != 0 && to_add[atom->map(to_add[i])] == tag[i]) {
-      //printf("2++++ recheck to_add %d\t%d\n", to_add[i], to_add[atom->map(to_add[i])]);
-      if (to_add[i] < tag[i]) {
-        lb = to_add[i];
-        rb = tag[i];
-        l_flag = true;
-      }
-      else {
-        lb = tag[i];
-        rb = to_add[i];
-        l_flag = false;
-      }
-      if ((to_remove[atom->map(lb+1)] - rb == 0 || to_remove[atom->map(lb+1)] - rb == -1) && 
-      (lb - to_remove[atom->map(rb-1)] == 0 || lb - to_remove[atom->map(rb-1)] == -1)) {
-        if (to_remove[atom->map(lb+1)] == rb && to_remove[atom->map(rb-1)] == lb) {
-          if (l_flag) {
-            to_add[atom->map(to_add[i])] = 0;
-            distsq_c[atom->map(to_add[i])] = BIG;
-            to_add[i] = 0;
-            distsq_c[i] = BIG;
-            to_remove[atom->map(to_remove[atom->map(lb+1)])] = 0;
-            distsq_b[atom->map(to_remove[atom->map(lb+1)])] = 0;
-            to_remove[atom->map(lb+1)] = 0;
-            distsq_b[atom->map(lb+1)] = 0;
-          }
-          else {
-            to_add[atom->map(to_add[i])] = 0;
-            distsq_c[atom->map(to_add[i])] = BIG;
-            to_add[i] = 0;
-            distsq_c[i] = BIG;
-            to_remove[atom->map(to_remove[atom->map(rb-1)])] = 0;
-            distsq_b[atom->map(to_remove[atom->map(rb-1)])] = 0;
-            to_remove[atom->map(rb-1)] = 0;
-            distsq_b[atom->map(rb-1)] = 0;
-          }
-          continue;
-        }
-        //printf ("2.5+++- recheck to_add %d\t%d\t%d\t%d\n", lb, rb, to_remove[atom->map(lb+1)], to_remove[atom->map(rb-1)]);
-        continue;
-      }
-      else if ((to_remove[atom->map(lb+1)] - rb == 0 || to_remove[atom->map(lb+1)] - rb == -1) && 
-      (lb - to_remove[atom->map(rb)] == 0 || lb - to_remove[atom->map(rb)] == -1)) {
-        if (to_remove[atom->map(lb+1)] == rb && to_remove[atom->map(rb)] == lb) {
-          if (l_flag) {
-            to_add[atom->map(to_add[i])] = 0;
-            distsq_c[atom->map(to_add[i])] = BIG;
-            to_add[i] = 0;
-            distsq_c[i] = BIG;
-            to_remove[atom->map(to_remove[atom->map(lb+1)])] = 0;
-            distsq_b[atom->map(to_remove[atom->map(lb+1)])] = 0;
-            to_remove[atom->map(lb+1)] = 0;
-            distsq_b[atom->map(lb+1)] = 0;
-          }
-          else {
-            to_add[atom->map(to_add[i])] = 0;
-            distsq_c[atom->map(to_add[i])] = BIG;
-            to_add[i] = 0;
-            distsq_c[i] = BIG;
-            to_remove[atom->map(to_remove[atom->map(rb)])] = 0;
-            distsq_b[atom->map(to_remove[atom->map(rb)])] = 0;
-            to_remove[atom->map(rb)] = 0;
-            distsq_b[atom->map(rb)] = 0;
-          }
-          continue;
-        }
-        //printf ("2.5+++- recheck to_add %d\t%d\t%d\t%d\n", lb, rb, to_remove[atom->map(lb+1)], to_remove[atom->map(rb)]);
-        continue;
-      }
-      else if ((to_remove[atom->map(lb)] - rb == 0 || to_remove[atom->map(lb)] - rb == -1) && 
-      (lb - to_remove[atom->map(rb-1)] == 0 || lb - to_remove[atom->map(rb-1)] == -1)) {
-        if (to_remove[atom->map(lb)] == rb && to_remove[atom->map(rb-1)] == lb) {
-          if (l_flag) {
-            to_add[atom->map(to_add[i])] = 0;
-            distsq_c[atom->map(to_add[i])] = BIG;
-            to_add[i] = 0;
-            distsq_c[i] = BIG;
-            to_remove[atom->map(to_remove[atom->map(lb)])] = 0;
-            distsq_b[atom->map(to_remove[atom->map(lb)])] = 0;
-            to_remove[atom->map(lb)] = 0;
-            distsq_b[atom->map(lb)] = 0;
-          }
-          else {
-            to_add[atom->map(to_add[i])] = 0;
-            distsq_c[atom->map(to_add[i])] = BIG;
-            to_add[i] = 0;
-            distsq_c[i] = BIG;
-            to_remove[atom->map(to_remove[atom->map(rb-1)])] = 0;
-            distsq_b[atom->map(to_remove[atom->map(rb-1)])] = 0;
-            to_remove[atom->map(rb-1)] = 0;
-            distsq_b[atom->map(rb-1)] = 0;
-          }
-          continue;
-        }
-          //printf ("2.5+++- recheck to_add %d\t%d\t%d\t%d\n", lb, rb, to_remove[atom->map(lb)], to_remove[atom->map(rb-1)]);
-          continue;
-        }
-      else {
-        to_add[i] = 0;
-        distsq_c[i] = BIG;
-      }
-    }
-  }
-  
-  for (i = 0; i < nall; i++) {
-    if (to_remove[i] != 0 && to_remove[atom->map(to_remove[i])] == tag[i]) 
-      printf("3---- recheck to_remove %d\t%d\t%d\n", to_remove[i], to_remove[atom->map(to_remove[i])], me);
-  }
-  for (i = 0; i < nall; i++) {
-    if (to_add[i] != 0 && to_add[atom->map(to_add[i])] == tag[i]) 
-      printf("3++++ recheck to_add %d\t%d\t%d\n", to_add[i], to_add[atom->map(to_add[i])], me);
-  }
-  
-*/
-  commflag=2;
-  comm->reverse_comm_fix(this);
-  commflag=3;
-  comm->reverse_comm_fix(this);
-/*
-  for (i = 0; i < nlocal; i++) {
-    if (to_remove[i] != 0 && to_remove[atom->map(to_remove[i])] == tag[i]) 
-      printf("3.5---- recheck to_remove %d\t%d\t%d\n", to_remove[i], to_remove[atom->map(to_remove[i])], me);
-  }
-  for (i = 0; i < nlocal; i++) {
-    if (to_add[i] != 0 && to_add[atom->map(to_add[i])] == tag[i]) 
-      printf("3.5++++ recheck to_add %d\t%d\t%d\n", to_add[i], to_add[atom->map(to_add[i])], me);
-  }
-*/
   // each atom now knows its winning partner
   commflag = 91;
   comm->forward_comm_fix(this,1);
-  /*
-  for (i = 0; i < nall; i++) {
-    if (to_remove[i] != 0 && to_remove[atom->map(to_remove[i])] == tag[i] && me==16) 
-      printf("3.7---- recheck to_remove %d\t%d\t%d\n", to_remove[i], to_remove[atom->map(to_remove[i])], me);
-  }
-  for (i = 0; i < nall; i++) {
-    if (to_add[i] != 0 && to_add[atom->map(to_add[i])] == tag[i] && me==16) 
-      printf("3.7++++ recheck to_add %d\t%d\t%d\n", to_add[i], to_add[atom->map(to_add[i])], me);
-  }
-  */
   commflag = 92;
   comm->forward_comm_fix(this,1);
-  /*
-  for (i = 0; i < nall; i++) {
-    if (to_remove[i] != 0 && to_remove[atom->map(to_remove[i])] == tag[i] && me==16) 
-      printf("4---- recheck to_remove %d\t%d\t%d\n", to_remove[i], to_remove[atom->map(to_remove[i])], me);
-  }
-  for (i = 0; i < nall; i++) {
-    if (to_add[i] != 0 && to_add[atom->map(to_add[i])] == tag[i] && me==16) 
-      printf("4++++ recheck to_add %d\t%d\t%d\n", to_add[i], to_add[atom->map(to_add[i])], me);
-  }
-  */
   
 //.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  
 //.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  
@@ -994,9 +557,9 @@ void FixExtrusion::post_integrate()
       }
     
     if (
-      (to_add[atom->map(lb - 1)] == rb &&     to_add[atom->map(rb)] == lb - 1) ||// &&    to_add[atom->map(rb + 1)] != lb)  ||
+      (to_add[atom->map(lb - 1)] == rb &&     to_add[atom->map(rb)] == lb - 1) ||
       (to_add[atom->map(lb - 1)] == rb + 1 && to_add[atom->map(rb + 1)] == lb - 1) ||
-      (to_add[atom->map(lb)] == rb + 1 &&     to_add[atom->map(rb + 1)] == lb)) {// &&    to_add[atom->map(rb)] != lb - 1)) {
+      (to_add[atom->map(lb)] == rb + 1 &&     to_add[atom->map(rb + 1)] == lb)) {
 
     // delete bond from atom I if I stores it
     // atom J will also do this
@@ -1029,12 +592,11 @@ void FixExtrusion::post_integrate()
       //printf ("third assignment remove: %d %d\n", tag[i], tag[j]);
       final_to_remove[i] = tag[j];
       final_to_remove[j] = tag[i];
-      //printf("final to remove: %d, %d\n", tag[i], tag[j]);
       if (tag[i] < tag[j]) nbreak++;
       }
   }
 
-  //.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  
+//.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  
 //.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  
 //.  .  .  .  .  Now loops over bonds will be formed .  .  .  .  .  .  . 
 //.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  
@@ -1043,8 +605,8 @@ void FixExtrusion::post_integrate()
   for (i = 0; i < nlocal; i++) {
     if (to_add[i] == 0) continue;
     j = atom->map(to_add[i]);
-    j = atom->map(tag[j]);
     if (to_add[j] != tag[i]) continue;
+    if (num_bond[i] == atom->bond_per_atom) continue;
     if (to_add[i] < tag[i]) {
       lb = to_add[i];
       rb = tag[i];
@@ -1053,25 +615,14 @@ void FixExtrusion::post_integrate()
       lb = tag[i];
       rb = to_add[i];
     }
-    //if (me == 8 && lb == 168 && rb == 172) printf ("to_add %d\t%d\t to_remove %d\t%d\t%d\t%d\n", 
-    //lb, rb, to_remove[atom->map(lb + 1)], to_remove[atom->map(lb)], to_remove[atom->map(rb)], to_remove[atom->map(rb - 1)]);
-    if ((
-      to_remove[atom->map(lb + 1)] == rb &&
-      to_remove[atom->map(rb)] == lb + 1) &&
-      to_remove[atom->map(lb)] == rb - 1 &&
-      to_remove[atom->map(rb - 1)] == lb) {
-
-      }
     if (
       (to_remove[atom->map(lb + 1)] == rb &&      to_remove[atom->map(rb)] == lb + 1) || 
       (to_remove[atom->map(lb + 1)] == rb - 1 &&  to_remove[atom->map(rb - 1)] == lb + 1) || 
       (to_remove[atom->map(lb)] == rb - 1 &&      to_remove[atom->map(rb - 1)] == lb)) {
-    //printf("to add: %d, %d\n", tag[i], tag[j]);
 
     // if newton_bond is set, only store with I or J
     // if not newton_bond, store bond with both I and J
     // atom J will also do this consistently, whatever proc it is on
-    //if (!force->newton_bond || tag[i] < tag[j]) {
       if (num_bond[i] == atom->bond_per_atom){
         printf("problem with bonds %d, %d, %d, proc %d\n", num_bond[i], tag[i], atom->bond_per_atom, me);
         for (int myit = 0; myit < num_bond[i]; myit++)
@@ -1085,7 +636,6 @@ void FixExtrusion::post_integrate()
       bond_type[i][num_bond[i]] = btype;
       bond_atom[i][num_bond[i]] = tag[j];
       num_bond[i]++;
-    //}
 
     // add a 1-2 neighbor to special bond list for atom I
     // atom J will also do this, whatever proc it is on
@@ -1139,25 +689,18 @@ void FixExtrusion::post_integrate()
     printf(" createcount %d, breakcount %d, timestep %d\n", createcount, breakcount, update->ntimestep);
     for (int b=0; b<nlocal; b++)
     {
-      //if (abs(tag[bondlist[b][0]] - tag[bondlist[b][1]])>1) printf("_$ %d\t%d\t%d\n", tag[bondlist[b][0]], tag[bondlist[b][1]], me);
       if (final_to_remove[b] != 0) printf("-$ %d\t%d\t%d\t%d\n", tag[b], final_to_remove[atom->map(final_to_remove[b])], final_to_remove[b], me);
       if (final_to_add[b] != 0) printf("+$ %d\t%d\t%d\t%d\n", tag[b], final_to_add[atom->map(final_to_add[b])], final_to_add[b], me);
     }
     error->all(FLERR,"Numbers of created and broken bonds are not equal");
   }
   
-  //if (breakcount) next_reneighbor = update->ntimestep;
-  //if (!breakcount) return;
-
-  //breakcounttotal += breakcount;
 
   // communicate final partner and 1-2 special neighbors
   // 1-2 neighs already reflect broken bonds
 
-  //printf ("rank %d chkpnt 7\n", me);
   commflag = 3;
   comm->forward_comm_fix(this);
-//printf ("rank %d chkpnt 8\n", me);
   // create list of broken bonds that influence my owned atoms
   //   even if between owned-ghost or ghost-ghost atoms
   // finalpartner is now set for owned and ghost atoms so loop over nall
@@ -1183,10 +726,8 @@ void FixExtrusion::post_integrate()
 
 
 //update to_add
-//printf ("rank %d chkpnt 9\n", me);
   commflag = 2;
   comm->forward_comm_fix(this);
-//printf ("rank %d chkpnt 10\n", me);
 
   ncreate = 0;
   for (i = 0; i < nall; i++) {
