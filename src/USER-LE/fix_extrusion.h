@@ -13,7 +13,7 @@
 
 #ifdef FIX_CLASS
 
-FixStyle(extrusion,FixExtrusion)
+FixStyle(extrusion, FixExtrusion)
 
 #else
 
@@ -22,76 +22,78 @@ FixStyle(extrusion,FixExtrusion)
 
 #include "fix.h"
 
-namespace LAMMPS_NS {
+namespace LAMMPS_NS
+{
 
-class FixExtrusion : public Fix {
- public:
-  FixExtrusion(class LAMMPS *, int, char **);
-  ~FixExtrusion();
-  int setmask();
-  void init();
-  void setup(int);
-  void post_integrate();
-  void post_integrate_respa(int,int);
+   class FixExtrusion : public Fix
+   {
+   public:
+      FixExtrusion(class LAMMPS *, int, char **);
+      ~FixExtrusion();
+      int setmask();
+      void init();
+      void setup(int);
+      void post_integrate();
+      void post_integrate_respa(int, int);
 
-  int pack_forward_comm(int, int *, double *, int, int *);
-  void unpack_forward_comm(int, int, double *);
-  int pack_reverse_comm(int, int, double *);
-  void unpack_reverse_comm(int, int *, double *);
-  void grow_arrays(int);
-  void copy_arrays(int, int, int);
-  int pack_exchange(int, double *);
-  int unpack_exchange(int, double *);
-  double compute_vector(int);
-  double memory_usage();
+      int pack_forward_comm(int, int *, double *, int, int *);
+      void unpack_forward_comm(int, int, double *);
+      int pack_reverse_comm(int, int, double *);
+      void unpack_reverse_comm(int, int *, double *);
+      void grow_arrays(int);
+      void copy_arrays(int, int, int);
+      int pack_exchange(int, double *);
+      int unpack_exchange(int, double *);
+      double compute_vector(int);
+      double memory_usage();
 
- private:
-  int me,nprocs;
-  int btype,seed;
-  double cutoff,cutsq,fraction;
-  bigint lastcheck;
+   private:
+      int me, nprocs;
+      int btype, seed;
+      double cutoff, cutsq, fraction;
+      bigint lastcheck;
 
-  int breakcount,breakcounttotal;
-  int createcount,createcounttotal;//to track balance between broken and created bonds
-  int nmax;
-  int chain_length;
-  int *bondcount;
-  tagint *to_remove, *to_add, *recreate;
-  tagint *final_to_remove, *final_to_add;
-  double *distsq_c,*distsq_b,*probability;
+      int breakcount, breakcounttotal;
+      int createcount, createcounttotal; //to track balance between broken and created bonds
+      int nmax;
+      int chain_length;
+      int *bondcount;
+      tagint *to_remove, *to_add, *recreate;
+      tagint *final_to_remove, *final_to_add;
+      double *distsq_c, *distsq_b, *probability;
 
-  int nbreak,ncreate,maxbreak, maxcreate;//, nshift, maxshift;//number of created and broken bonds should be equal
-  //tagint **shifted;
-  tagint **broken, **created;
-  tagint *copy;
+      int nbreak, ncreate, maxbreak, maxcreate; //, nshift, maxshift;//number of created and broken bonds should be equal
+      //tagint **shifted;
+      tagint **broken, **created;
+      tagint *copy;
 
-  class RanMars *random;
-  int nlevels_respa;
+      class RanMars *random;
+      int nlevels_respa;
 
-  int countflag, commflag;
-  int nangles,ndihedrals,nimpropers;
+      int countflag, commflag;
+      int nangles, ndihedrals, nimpropers;
 
-  //unique for extrusion
-  int neutral_type, ctcf_left, ctcf_right; //already have btype
-  double through_prob;
+      //unique for extrusion
+      int neutral_type, ctcf_left, ctcf_right, ctcf_left_right; //already have btype
+      double through_prob;
 
-  void check_ghosts();
-  void update_topology();
-  void rebuild_special_one(int);
-  int dedup(int, int, tagint *);
+      void check_ghosts();
+      void update_topology();
+      void rebuild_special_one(int);
+      int dedup(int, int, tagint *);
 
-  // DEBUG
+      // DEBUG
 
-  void print_bb();
-  void print_copy(const char *, tagint, int, int, int, int *);
-};
+      void print_bb();
+      void print_copy(const char *, tagint, int, int, int, int *);
+   };
 
 }
 
 #endif
 #endif
 
-/* ERROR/WARNING messages:
+    /* ERROR/WARNING messages:
 
 E: Illegal ... command
 

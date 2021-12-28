@@ -27,7 +27,6 @@
 #include "error.h"
 #include <math.h>
 
-
 using namespace LAMMPS_NS;
 using namespace FixConst;
 
@@ -36,19 +35,20 @@ using namespace FixConst;
 
 /* ---------------------------------------------------------------------- */
 
-FixExtrusion::FixExtrusion(LAMMPS *lmp, int narg, char **arg) :
-  Fix(lmp, narg, arg),
-  to_remove(NULL), to_add(NULL), final_to_remove(NULL), final_to_add(NULL), 
-  distsq_c(NULL), distsq_b(NULL), probability(NULL), broken(NULL), created(NULL), copy(NULL),
-  random(NULL), bondcount(NULL), recreate(NULL)
+FixExtrusion::FixExtrusion(LAMMPS *lmp, int narg, char **arg) : Fix(lmp, narg, arg),
+                                                                to_remove(NULL), to_add(NULL), final_to_remove(NULL), final_to_add(NULL),
+                                                                distsq_c(NULL), distsq_b(NULL), probability(NULL), broken(NULL), created(NULL), copy(NULL),
+                                                                random(NULL), bondcount(NULL), recreate(NULL)
 {
-  if (narg < 8) error->all(FLERR,"Illegal fix extrusion command");
+  if (narg < 8)
+    error->all(FLERR, "Illegal fix extrusion command");
 
-  MPI_Comm_rank(world,&me);
-  MPI_Comm_size(world,&nprocs);
+  MPI_Comm_rank(world, &me);
+  MPI_Comm_size(world, &nprocs);
 
-  nevery = utils::inumeric(FLERR,arg[3],false,lmp);
-  if (nevery <= 0) error->all(FLERR,"Illegal fix extrusion command, n_steps <= 0");
+  nevery = utils::inumeric(FLERR, arg[3], false, lmp);
+  if (nevery <= 0)
+    error->all(FLERR, "Illegal fix extrusion command, n_steps <= 0");
 
   force_reneighbor = 1;
   next_reneighbor = -1;
@@ -57,33 +57,37 @@ FixExtrusion::FixExtrusion(LAMMPS *lmp, int narg, char **arg) :
   global_freq = 1;
   extvector = 0;
 
-  neutral_type = utils::inumeric(FLERR,arg[4],false,lmp);
-  ctcf_left = utils::inumeric(FLERR,arg[5],false,lmp);
-  ctcf_right = utils::inumeric(FLERR,arg[6],false,lmp);
-  
+  neutral_type = utils::inumeric(FLERR, arg[4], false, lmp);
+  ctcf_left = utils::inumeric(FLERR, arg[5], false, lmp);
+  ctcf_right = utils::inumeric(FLERR, arg[6], false, lmp);
 
   if (neutral_type < 1 || neutral_type > atom->ntypes ||
       ctcf_left < 1 || ctcf_left > atom->ntypes ||
       ctcf_right < 1 || ctcf_right > atom->ntypes)
-    error->all(FLERR,"Invalid atom type (CTCF) in fix extrusion command");
+    error->all(FLERR, "Invalid atom type (CTCF) in fix extrusion command");
 
-  through_prob = utils::numeric(FLERR,arg[7],false,lmp);
-  if (through_prob <0 || through_prob>1)
-  error->all(FLERR,"Invalid probability to pass through CTCF in fix extrusion command");
+  through_prob = utils::numeric(FLERR, arg[7], false, lmp);
+  if (through_prob < 0 || through_prob > 1)
+    error->all(FLERR, "Invalid probability to pass through CTCF in fix extrusion command");
 
-  btype = utils::inumeric(FLERR,arg[8],false,lmp);
-    if (btype < 1 || btype > atom->nbondtypes)
-    error->all(FLERR,"Invalid atom type in fix extrusion command");
-  
-  
+  btype = utils::inumeric(FLERR, arg[8], false, lmp);
+  if (btype < 1 || btype > atom->nbondtypes)
+    error->all(FLERR, "Invalid atom type in fix extrusion command");
+
+  if (narg == 9)
+    ctcf_left_right = utils::inumeric(FLERR, arg[9], false, lmp);
+  else
+    ctcf_left_right = -1;
+  if (ctcf_left_right > atom->nbondtypes)
+    error->all(FLERR, "Invalid atom type in fix extrusion command");
   // error check
 
   if (atom->molecular != 1)
-    error->all(FLERR,"Cannot use fix extrusion with non-molecular systems");
+    error->all(FLERR, "Cannot use fix extrusion with non-molecular systems");
 
   // initialize Marsaglia RNG with processor-unique seed
   int seed = 12345;
-  random = new RanMars(lmp,seed + me);
+  random = new RanMars(lmp, seed + me);
 
   // perform initial allocation of atom-based arrays
   // register with Atom class
@@ -97,7 +101,7 @@ FixExtrusion::FixExtrusion(LAMMPS *lmp, int narg, char **arg) :
   // set comm sizes needed by this fix
   // forward is big due to comm of broken bonds and 1-2 neighbors
 
-  comm_forward = MAX(2,2+atom->maxspecial);
+  comm_forward = MAX(2, 2 + atom->maxspecial);
   comm_reverse = 2;
 
   // allocate arrays local to this fix
@@ -115,8 +119,9 @@ FixExtrusion::FixExtrusion(LAMMPS *lmp, int narg, char **arg) :
   // this means intermediate size cannot exceed ms^2 + ms
 
   int maxspecial = atom->maxspecial;
-  if (me==0) printf ("Attention! maxspecial = %d\n", maxspecial);
-  copy = new tagint[maxspecial*maxspecial + maxspecial];
+  if (me == 0)
+    printf("Attention! maxspecial = %d\n", maxspecial);
+  copy = new tagint[maxspecial * maxspecial + maxspecial];
 
   // zero out stats
   createcount = 0;
@@ -144,7 +149,7 @@ FixExtrusion::~FixExtrusion()
   memory->destroy(distsq_b);
   memory->destroy(broken);
   memory->destroy(created);
-  delete [] copy;
+  delete[] copy;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -160,20 +165,22 @@ int FixExtrusion::setmask()
 
 void FixExtrusion::init()
 {
-  if (strstr(update->integrate_style,"respa"))
-    nlevels_respa = ((Respa *) update->integrate)->nlevels;
+  if (strstr(update->integrate_style, "respa"))
+    nlevels_respa = ((Respa *)update->integrate)->nlevels;
 
   // warn if more than one fix bond/create or also a fix bond/break
   // because this fix stores per-atom state in bondcount
   //   if other fixes create/break bonds, this fix will not know about it
 
   int count = 0;
-  for (int i = 0; i < modify->nfix; i++) {
-    if (strcmp(modify->fix[i]->style,"extrusion") == 0) count++;
+  for (int i = 0; i < modify->nfix; i++)
+  {
+    if (strcmp(modify->fix[i]->style, "extrusion") == 0)
+      count++;
   }
   if (count > 1 && me == 0)
-    error->warning(FLERR,"Fix extrusion is used multiple times "
-                   " - may not work as expected");
+    error->warning(FLERR, "Fix extrusion is used multiple times "
+                          " - may not work as expected");
 
   lastcheck = -1;
 
@@ -181,15 +188,15 @@ void FixExtrusion::init()
   //print_bb();
 }
 
-
 void FixExtrusion::setup(int /*vflag*/)
 {
-  int i,j,m;
+  int i, j, m;
 
   // compute initial bondcount if this is first run
   // can't do this earlier, in constructor or init, b/c need ghost info
 
-  if (countflag) return;
+  if (countflag)
+    return;
   countflag = 1;
 
   // count bonds stored with each bond I own
@@ -204,18 +211,25 @@ void FixExtrusion::setup(int /*vflag*/)
   int nghost = atom->nghost;
   int nall = nlocal + nghost;
   int newton_bond = force->newton_bond;
-
-  for (i = 0; i < nall; i++) bondcount[i] = 0;
+  //if (!newton_bond)
+  //{
+  //  error->one(FLERR, "Fix extrusion needs newton bond on");
+  //}
+  for (i = 0; i < nall; i++)
+    bondcount[i] = 0;
 
   for (i = 0; i < nlocal; i++)
-    for (j = 0; j < num_bond[i]; j++) {
-      if (bond_type[i][j] == btype) {
+    for (j = 0; j < num_bond[i]; j++)
+    {
+      if (bond_type[i][j] == btype)
+      {
         bondcount[i]++;
-        if (newton_bond) {
+        if (newton_bond)
+        {
           m = atom->map(bond_atom[i][j]);
           if (m < 0)
-            error->one(FLERR,"Fix extrusion needs ghost atoms "
-                       "from further away");
+            error->one(FLERR, "Fix extrusion needs ghost atoms "
+                              "from further away");
           bondcount[m]++;
         }
       }
@@ -224,22 +238,23 @@ void FixExtrusion::setup(int /*vflag*/)
   // if newton_bond is set, need to sum bondcount
 
   commflag = 1;
-  if (newton_bond) comm->reverse_comm_fix(this,1);
+  if (newton_bond)
+    comm->reverse_comm_fix(this, 1);
 }
 
-
- /*---------------------------------------------------------------------- */
+/*---------------------------------------------------------------------- */
 
 void FixExtrusion::post_integrate()
 {
-  int i,j,k,m,n,i1,i2,n1,n2,n3,type;
+  int i, j, k, m, n, i1, i2, n1, n2, n3, type;
   int rb, lb;
-  double delx,dely,delz,rsq;
+  double delx, dely, delz, rsq;
   tagint *slist;
   int local_left, local_right;
   bool l_flag;
 
-  if (update->ntimestep % nevery - 1) return; // 1 to avoid traj_recording problems
+  if (update->ntimestep % nevery - 1)
+    return; // 1 to avoid traj_recording problems
 
   // count bonds stored with each bond I own
   // if newton bond is not set, just increment count on atom I
@@ -254,13 +269,18 @@ void FixExtrusion::post_integrate()
   int nall = nlocal + nghost;
   int newton_bond = force->newton_bond;
 
-  for (i = 0; i < nall; i++) bondcount[i] = 0;
+  for (i = 0; i < nall; i++)
+    bondcount[i] = 0;
 
-  for (i = 0; i < nlocal; i++) {
-    for (j = 0; j < num_bond[i]; j++) {
-      if (bond_type[i][j] == btype) {
+  for (i = 0; i < nlocal; i++)
+  {
+    for (j = 0; j < num_bond[i]; j++)
+    {
+      if (bond_type[i][j] == btype)
+      {
         bondcount[i]++;
-        if (bondcount[i] > 1) error->one(FLERR,"Fix extrusion, more than one bond type 2");
+        if (bondcount[i] > 1)
+          error->one(FLERR, "Fix extrusion, more than one bond type 2");
       }
     }
   }
@@ -281,13 +301,14 @@ void FixExtrusion::post_integrate()
   // forward comm of bondcount, so ghosts have it
   //printf ("rank %d chkpnt 0\n", me);
   commflag = 1;
-  comm->forward_comm_fix(this,1);
+  comm->forward_comm_fix(this, 1);
   //printf ("rank %d chkpnt 1\n", me);
   // resize bond partner list and initialize it
   // probability array overlays distsq array
   // needs to be atom->nmax in length
 
-  if (atom->nmax > nmax) {
+  if (atom->nmax > nmax)
+  {
     memory->destroy(to_remove);
     memory->destroy(to_add);
     memory->destroy(recreate);
@@ -296,18 +317,18 @@ void FixExtrusion::post_integrate()
     memory->destroy(distsq_c);
     memory->destroy(distsq_b);
     nmax = atom->nmax;
-    memory->create(to_remove,nmax,"extrusion:to_remove");
-    memory->create(to_add,nmax,"extrusion:to_add");
-    memory->create(recreate,nmax,"extrusion:recreate");
-    memory->create(final_to_remove,nmax,"extrusion:final_to_remove");
-    memory->create(final_to_add,nmax,"extrusion:final_to_add");
-    memory->create(distsq_c,nmax,"extrusion:distsq_c");
+    memory->create(to_remove, nmax, "extrusion:to_remove");
+    memory->create(to_add, nmax, "extrusion:to_add");
+    memory->create(recreate, nmax, "extrusion:recreate");
+    memory->create(final_to_remove, nmax, "extrusion:final_to_remove");
+    memory->create(final_to_add, nmax, "extrusion:final_to_add");
+    memory->create(distsq_c, nmax, "extrusion:distsq_c");
     probability = distsq_c;
-    memory->create(distsq_b,nmax,"extrusion:distsq_b");
+    memory->create(distsq_b, nmax, "extrusion:distsq_b");
   }
 
-
-  for (i = 0; i < nall; i++) {
+  for (i = 0; i < nall; i++)
+  {
     to_remove[i] = 0;
     to_add[i] = 0;
     recreate[i] = 0;
@@ -320,255 +341,314 @@ void FixExtrusion::post_integrate()
   // loop over bond list
   // setup possible partner list of bonds to break
 
-  double **x = atom->x;//
-  tagint *tag = atom->tag;//
-  int *mask = atom->mask;//
+  double **x = atom->x;    //
+  tagint *tag = atom->tag; //
+  int *mask = atom->mask;  //
   int **bondlist = neighbor->bondlist;
   int nbondlist = neighbor->nbondlist;
   int mi;
 
-  int **nspecial = atom->nspecial;//
-  tagint **special = atom->special;//
+  int **nspecial = atom->nspecial;  //
+  tagint **special = atom->special; //
 
   int swap_buffer;
   bool left_end_moving, right_end_moving;
   bool alreadymet = false;
 
-
-//new lines for extrusion
-  for (int numbnd = 0; numbnd < nbondlist; numbnd++) {
+  //new lines for extrusion
+  for (int numbnd = 0; numbnd < nbondlist; numbnd++)
+  {
     i1 = bondlist[numbnd][0];
     i2 = bondlist[numbnd][1]; //local atom numbers
     type = bondlist[numbnd][2];
-    if (!(mask[i1] & groupbit)) continue;
-    if (!(mask[i2] & groupbit)) continue;
-    if (type != btype) continue;
-    if (tag[i1] < tag[i2]) {
-      i1 = atom->map(tag[i1]);//local atom numbers double check
+    if (!(mask[i1] & groupbit))
+      continue;
+    if (!(mask[i2] & groupbit))
+      continue;
+    if (type != btype)
+      continue;
+    if (tag[i1] < tag[i2])
+    {
+      i1 = atom->map(tag[i1]); //local atom numbers double check
       i2 = atom->map(tag[i2]);
     }
-    else if (tag[i1] > tag[i2]) {
+    else if (tag[i1] > tag[i2])
+    {
       mi = i1;
-      i1 = atom->map(tag[i2]);//local atom numbers double check
+      i1 = atom->map(tag[i2]); //local atom numbers double check
       i2 = atom->map(tag[mi]);
-      }
-    else {
-        error->one(FLERR,"Fix extrusion, bond i-i exists");
-     }
- 
+    }
+    else
+    {
+      error->one(FLERR, "Fix extrusion, bond i-i exists");
+    }
+
     left_end_moving = false;
     right_end_moving = false;
-    
+
     if (
-      num_bond[i1] == 1 ||
-      num_bond[i2] == 1 ||
-      num_bond[i1] == 0 ||
-      num_bond[i2] == 0 ||
-      bondcount[i1] != 1 ||
-      bondcount[i2] != 1 )  continue; // check if beads i1 and i2 has 1 or 0 bonds at all or they do not have bond to shift. Just a sanity check.
+        num_bond[i1] == 1 ||
+        num_bond[i2] == 1 ||
+        num_bond[i1] == 0 ||
+        num_bond[i2] == 0 ||
+        bondcount[i1] != 1 ||
+        bondcount[i2] != 1)
+      continue; // check if beads i1 and i2 has 1 or 0 bonds at all or they do not have bond to shift. Just a sanity check.
     if (
-    num_bond[atom->map(tag[i1] - 1)] - bondcount[atom->map(tag[i1] - 1)] == 2 &&
-    bondcount[atom->map(tag[i1] - 1)] == 0 &&
-    (atom->type[atom->map(tag[i1] - 1)] == ctcf_left ||
-     atom->type[atom->map(tag[i1] - 1)] == ctcf_right ||
-     atom->type[atom->map(tag[i1] - 1)] == neutral_type) &&
-    (atom->type[atom->map(tag[i1] - 1)] != ctcf_left || through_prob > random->uniform())) {
+        num_bond[atom->map(tag[i1] - 1)] - bondcount[atom->map(tag[i1] - 1)] == 2 &&
+        bondcount[atom->map(tag[i1] - 1)] == 0 &&
+        (atom->type[atom->map(tag[i1] - 1)] == ctcf_left ||
+         atom->type[atom->map(tag[i1] - 1)] == ctcf_right ||
+         atom->type[atom->map(tag[i1] - 1)] == ctcf_left_right ||
+         atom->type[atom->map(tag[i1] - 1)] == neutral_type) &&
+        (atom->type[atom->map(tag[i1] - 1)] != ctcf_left ||
+         atom->type[atom->map(tag[i1] - 1)] != ctcf_left_right ||
+         through_prob > random->uniform()))
+    {
       local_left = atom->map(tag[i1] - 1);
       if (
-      num_bond[atom->map(tag[i2] + 1)] - bondcount[atom->map(tag[i2] + 1)] == 2 &&
-      bondcount[atom->map(tag[i2] + 1)] == 0 &&
-      (atom->type[atom->map(tag[i2] + 1)] == ctcf_left ||
-       atom->type[atom->map(tag[i2] + 1)] == ctcf_right ||
-       atom->type[atom->map(tag[i2] + 1)] == neutral_type) &&
-      (atom->type[atom->map(tag[i2] + 1)] != ctcf_right || through_prob > random->uniform())) { // move left and right
+          num_bond[atom->map(tag[i2] + 1)] - bondcount[atom->map(tag[i2] + 1)] == 2 &&
+          bondcount[atom->map(tag[i2] + 1)] == 0 &&
+          (atom->type[atom->map(tag[i2] + 1)] == ctcf_left ||
+           atom->type[atom->map(tag[i2] + 1)] == ctcf_right ||
+           atom->type[atom->map(tag[i2] + 1)] == ctcf_left_right ||
+           atom->type[atom->map(tag[i2] + 1)] == neutral_type) &&
+          (atom->type[atom->map(tag[i2] + 1)] != ctcf_right ||
+           atom->type[atom->map(tag[i2] + 1)] != ctcf_left_right ||
+           through_prob > random->uniform()))
+      { // move left and right
         local_right = atom->map(tag[i2] + 1);
         delx = x[local_left][0] - x[local_right][0];
         dely = x[local_left][1] - x[local_right][1];
         delz = x[local_left][2] - x[local_right][2];
-        rsq = delx*delx + dely*dely + delz*delz;
-        if (rsq >= distsq_c[local_left] && rsq >= distsq_c[local_right]) continue;
-        if (rsq < distsq_c[local_left]) {
+        rsq = delx * delx + dely * dely + delz * delz;
+        if (rsq >= distsq_c[local_left] && rsq >= distsq_c[local_right])
+          continue;
+        if (rsq < distsq_c[local_left])
+        {
           distsq_c[local_left] = rsq;
           to_add[local_left] = tag[local_right];
         }
-       if (rsq < distsq_c[local_right]) {
+        if (rsq < distsq_c[local_right])
+        {
           distsq_c[local_right] = rsq;
           to_add[local_right] = tag[local_left];
         }
-          distsq_b[i1] = rsq;
-          to_remove[i1]=tag[i2];
-          distsq_b[i2] = rsq;
-          to_remove[i2]=tag[i1];
+        distsq_b[i1] = rsq;
+        to_remove[i1] = tag[i2];
+        distsq_b[i2] = rsq;
+        to_remove[i2] = tag[i1];
       }
-      else { // left move, right not
+      else
+      { // left move, right not
         delx = x[local_left][0] - x[i2][0];
         dely = x[local_left][1] - x[i2][1];
         delz = x[local_left][2] - x[i2][2];
-        rsq = delx*delx + dely*dely + delz*delz;
-        if (rsq >= distsq_c[local_left]) continue;
-        if (rsq < distsq_c[local_left]) {
+        rsq = delx * delx + dely * dely + delz * delz;
+        if (rsq >= distsq_c[local_left])
+          continue;
+        if (rsq < distsq_c[local_left])
+        {
           distsq_c[local_left] = rsq;
           to_add[local_left] = tag[i2];
         }
-        if (distsq_c[i2] == BIG) {
+        if (distsq_c[i2] == BIG)
+        {
           distsq_c[i2] = rsq;
           to_add[i2] = tag[local_left];
         }
-        else printf ("The default distance between local_left and i2 stored at i2 is not var. BIG\n");
+        else
+          printf("The default distance between local_left and i2 stored at i2 is not var. BIG\n");
 
-          distsq_b[i1] = rsq;
-          to_remove[i1]=tag[i2];
-          distsq_b[i2] = rsq;
-          to_remove[i2]=tag[i1];
+        distsq_b[i1] = rsq;
+        to_remove[i1] = tag[i2];
+        distsq_b[i2] = rsq;
+        to_remove[i2] = tag[i1];
       }
     }
     else if (
-    num_bond[atom->map(tag[i2] + 1)] - bondcount[atom->map(tag[i2] + 1)] == 2 &&
-    bondcount[atom->map(tag[i2] + 1)] == 0 &&
-    (atom->type[atom->map(tag[i2] + 1)] == ctcf_left ||
-     atom->type[atom->map(tag[i2] + 1)] == ctcf_right ||
-     atom->type[atom->map(tag[i2] + 1)] == neutral_type) &&
-    (atom->type[atom->map(tag[i2] + 1)] != ctcf_right || through_prob > random->uniform())) {
+        num_bond[atom->map(tag[i2] + 1)] - bondcount[atom->map(tag[i2] + 1)] == 2 &&
+        bondcount[atom->map(tag[i2] + 1)] == 0 &&
+        (atom->type[atom->map(tag[i2] + 1)] == ctcf_left ||
+         atom->type[atom->map(tag[i2] + 1)] == ctcf_right ||
+         atom->type[atom->map(tag[i2] + 1)] == ctcf_left_right ||
+         atom->type[atom->map(tag[i2] + 1)] == neutral_type) &&
+        (atom->type[atom->map(tag[i2] + 1)] != ctcf_right ||
+         atom->type[atom->map(tag[i2] + 1)] != ctcf_left_right ||
+         through_prob > random->uniform()))
+    {
       local_right = atom->map(tag[i2] + 1);
       delx = x[i1][0] - x[local_right][0];
       dely = x[i1][1] - x[local_right][1];
       delz = x[i1][2] - x[local_right][2];
-      rsq = delx*delx + dely*dely + delz*delz;
-      if (rsq >= distsq_c[local_right]) continue;
-      if (distsq_c[i1] == BIG) {
+      rsq = delx * delx + dely * dely + delz * delz;
+      if (rsq >= distsq_c[local_right])
+        continue;
+      if (distsq_c[i1] == BIG)
+      {
         distsq_c[i1] = rsq;
         to_add[i1] = tag[local_right];
       }
-      else printf("The default distance between local_right and i1 stored at i1 is not var. BIG\n");
-      if (rsq < distsq_c[local_right]) {
+      else
+        printf("The default distance between local_right and i1 stored at i1 is not var. BIG\n");
+      if (rsq < distsq_c[local_right])
+      {
         distsq_c[local_right] = rsq;
         to_add[local_right] = tag[i1];
       }
-        distsq_b[i1] = rsq;
-        to_remove[i1]=tag[i2];
-        distsq_b[i2] = rsq;
-        to_remove[i2]=tag[i1];
+      distsq_b[i1] = rsq;
+      to_remove[i1] = tag[i2];
+      distsq_b[i2] = rsq;
+      to_remove[i2] = tag[i1];
     }
   }
-    bool iisleft = false;
-    for (i=0; i<nlocal; i++) {
-        if (to_add[i] == 0) continue;
-        j = atom->map(to_add[i]);
-        if (to_add[i] != tag[j]) printf("local <-> global ids:\n%d\t%d\t%d\t%d\n", 
-            to_add[i], tag[j], tag[atom->map(to_add[i])], tag[atom->map(tag[j])]);
-        if (to_add[j] != tag[i]) {
-            if (tag[i] < tag[j]) {
-                lb = atom->map(tag[i]+1);
-                rb = atom->map(tag[j]-1);
-                iisleft=true;
-            }
-            else if (tag[i] > tag[j]) {
-                lb = atom->map(tag[j]+1);
-                rb = atom->map(tag[i]-1);
-                iisleft = false;
-            }
-            if (iisleft) {
-                if (tag[lb] == to_remove[rb] && to_remove[lb] == tag[rb]) {
-                    to_remove[lb] = 0;
-                    to_remove[rb] = 0;
-                }
-                else if (tag[i] == to_remove[rb] && to_remove[i] == tag[rb]) {
-                    to_remove[i] = 0;
-                    to_remove[rb] = 0;
-                }
-                else if (tag[lb] == to_remove[j] && to_remove[lb] == tag[j]) {
-                    to_remove[lb] = 0;
-                    to_remove[j] = 0;
-                }
-                else if (tag[i] == to_remove[j] && tag[j] == to_remove[i]) {
-                    to_remove[i] = 0;
-                    to_remove[j] = 0;
-                }
-                else {
-                    printf("Broken bond is missing\n%d\t%d\n%d\t%d\t%d\t%d\n%d\t%d\t%d\t%d\n", tag[i], to_add[i], 
-                          tag[lb], tag[rb], tag[i], tag[j], 
-                          to_remove[lb], to_remove[rb], to_remove[i], to_remove[j]);
-                }
-            }
-            else {
-                if (tag[lb] == to_remove[rb] && to_remove[lb] == tag[rb]) {
-                    to_remove[lb] = 0;
-                    to_remove[rb] = 0;
-                }
-                else if (tag[i] == to_remove[lb] && to_remove[i] == tag[lb]) {
-                    to_remove[i] = 0;
-                    to_remove[lb] = 0;
-                }
-                else if (tag[rb] == to_remove[j] && to_remove[rb] == tag[j]) {
-                to_remove[rb] = 0;
-                to_remove[j] = 0;
-                }
-                else if (tag[i] == to_remove[j] && tag[j] == to_remove[i]) {
-                    to_remove[i] = 0;
-                    to_remove[j] = 0;
-                }
-                else {
-                    printf("Broken bond is missing\n%d\t%d\n%d\t%d\t%d\t%d\n%d\t%d\t%d\t%d\n", tag[i], to_add[i],
-                       tag[lb], tag[rb], tag[i], tag[j],
-                       to_remove[lb], to_remove[rb], to_remove[i], to_remove[j]);
-                }
-            }
+  bool iisleft = false;
+  for (i = 0; i < nlocal; i++)
+  {
+    if (to_add[i] == 0)
+      continue;
+    j = atom->map(to_add[i]);
+    if (to_add[i] != tag[j])
+      printf("local <-> global ids:\n%d\t%d\t%d\t%d\n",
+             to_add[i], tag[j], tag[atom->map(to_add[i])], tag[atom->map(tag[j])]);
+    if (to_add[j] != tag[i])
+    {
+      if (tag[i] < tag[j])
+      {
+        lb = atom->map(tag[i] + 1);
+        rb = atom->map(tag[j] - 1);
+        iisleft = true;
+      }
+      else if (tag[i] > tag[j])
+      {
+        lb = atom->map(tag[j] + 1);
+        rb = atom->map(tag[i] - 1);
+        iisleft = false;
+      }
+      if (iisleft)
+      {
+        if (tag[lb] == to_remove[rb] && to_remove[lb] == tag[rb])
+        {
+          to_remove[lb] = 0;
+          to_remove[rb] = 0;
         }
+        else if (tag[i] == to_remove[rb] && to_remove[i] == tag[rb])
+        {
+          to_remove[i] = 0;
+          to_remove[rb] = 0;
+        }
+        else if (tag[lb] == to_remove[j] && to_remove[lb] == tag[j])
+        {
+          to_remove[lb] = 0;
+          to_remove[j] = 0;
+        }
+        else if (tag[i] == to_remove[j] && tag[j] == to_remove[i])
+        {
+          to_remove[i] = 0;
+          to_remove[j] = 0;
+        }
+        else
+        {
+          printf("Broken bond is missing\n%d\t%d\n%d\t%d\t%d\t%d\n%d\t%d\t%d\t%d\n", tag[i], to_add[i],
+                 tag[lb], tag[rb], tag[i], tag[j],
+                 to_remove[lb], to_remove[rb], to_remove[i], to_remove[j]);
+        }
+      }
+      else
+      {
+        if (tag[lb] == to_remove[rb] && to_remove[lb] == tag[rb])
+        {
+          to_remove[lb] = 0;
+          to_remove[rb] = 0;
+        }
+        else if (tag[i] == to_remove[lb] && to_remove[i] == tag[lb])
+        {
+          to_remove[i] = 0;
+          to_remove[lb] = 0;
+        }
+        else if (tag[rb] == to_remove[j] && to_remove[rb] == tag[j])
+        {
+          to_remove[rb] = 0;
+          to_remove[j] = 0;
+        }
+        else if (tag[i] == to_remove[j] && tag[j] == to_remove[i])
+        {
+          to_remove[i] = 0;
+          to_remove[j] = 0;
+        }
+        else
+        {
+          printf("Broken bond is missing\n%d\t%d\n%d\t%d\t%d\t%d\n%d\t%d\t%d\t%d\n", tag[i], to_add[i],
+                 tag[lb], tag[rb], tag[i], tag[j],
+                 to_remove[lb], to_remove[rb], to_remove[i], to_remove[j]);
+        }
+      }
     }
-  
-//  commflag=2;
-//  comm->reverse_comm_fix(this);
-//  commflag=3;
-//  comm->reverse_comm_fix(this);
-  
+  }
+
+  //  commflag=2;
+  //  comm->reverse_comm_fix(this);
+  //  commflag=3;
+  //  comm->reverse_comm_fix(this);
+
   // each atom now knows its winning partner
   commflag = 91;
-  comm->forward_comm_fix(this,1);
+  comm->forward_comm_fix(this, 1);
   commflag = 92;
-  comm->forward_comm_fix(this,1);
-  
-//.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  
-//.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  
-//.  .  .  .  .  Now loop over bonds to be removed.  .  .  .  .  .  .  .  
-//.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  
-//.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  
-  
-  nbreak=0;
-  for (i = 0; i < nlocal; i++) {
-    if (to_remove[i] == 0) continue;
+  comm->forward_comm_fix(this, 1);
+
+  //.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .
+  //.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .
+  //.  .  .  .  .  Now loop over bonds to be removed.  .  .  .  .  .  .  .
+  //.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .
+  //.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .
+
+  nbreak = 0;
+  for (i = 0; i < nlocal; i++)
+  {
+    if (to_remove[i] == 0)
+      continue;
     j = atom->map(to_remove[i]);
     j = atom->map(tag[j]);
-    if (to_remove[j] != tag[i]) continue;
-    if (to_remove[i] < tag[i]) {
+    if (to_remove[j] != tag[i])
+      continue;
+    if (to_remove[i] < tag[i])
+    {
       lb = to_remove[i];
       rb = tag[i];
     }
-    else {
+    else
+    {
       lb = tag[i];
       rb = to_remove[i];
     }
     if (
-      to_add[atom->map(lb - 1)] == rb &&     to_add[atom->map(rb)] == lb - 1 &&
-      to_add[atom->map(lb)] == rb + 1 &&     to_add[atom->map(rb + 1)] == lb) {
-        to_add[atom->map(lb - 1)] = rb + 1;
-        to_add[atom->map(rb + 1)] = lb - 1;
-        to_add[atom->map(lb)] = 0;
-        to_add[atom->map(rb)] = 0;
-      }
-    
+        to_add[atom->map(lb - 1)] == rb && to_add[atom->map(rb)] == lb - 1 &&
+        to_add[atom->map(lb)] == rb + 1 && to_add[atom->map(rb + 1)] == lb)
+    {
+      to_add[atom->map(lb - 1)] = rb + 1;
+      to_add[atom->map(rb + 1)] = lb - 1;
+      to_add[atom->map(lb)] = 0;
+      to_add[atom->map(rb)] = 0;
+    }
+
     if (
-      (to_add[atom->map(lb - 1)] == rb &&     to_add[atom->map(rb)] == lb - 1) ||
-      (to_add[atom->map(lb - 1)] == rb + 1 && to_add[atom->map(rb + 1)] == lb - 1) ||
-      (to_add[atom->map(lb)] == rb + 1 &&     to_add[atom->map(rb + 1)] == lb)) {
+        (to_add[atom->map(lb - 1)] == rb && to_add[atom->map(rb)] == lb - 1) ||
+        (to_add[atom->map(lb - 1)] == rb + 1 && to_add[atom->map(rb + 1)] == lb - 1) ||
+        (to_add[atom->map(lb)] == rb + 1 && to_add[atom->map(rb + 1)] == lb))
+    {
 
-    // delete bond from atom I if I stores it
-    // atom J will also do this
+      // delete bond from atom I if I stores it
+      // atom J will also do this
 
-      for (m = 0; m < num_bond[i]; m++) {
-        if (bond_atom[i][m] == to_remove[i]) {
-          for (k = m; k < num_bond[i]-1; k++) {
-            bond_atom[i][k] = bond_atom[i][k+1];
-            bond_type[i][k] = bond_type[i][k+1];
+      for (m = 0; m < num_bond[i]; m++)
+      {
+        if (bond_atom[i][m] == to_remove[i])
+        {
+          for (k = m; k < num_bond[i] - 1; k++)
+          {
+            bond_atom[i][k] = bond_atom[i][k + 1];
+            bond_type[i][k] = bond_type[i][k + 1];
           }
           num_bond[i]--;
           break;
@@ -581,9 +661,11 @@ void FixExtrusion::post_integrate()
       slist = special[i];
       n1 = nspecial[i][0];
       for (m = 0; m < n1; m++)
-        if (slist[m] == to_remove[i]) break;
+        if (slist[m] == to_remove[i])
+          break;
       n3 = nspecial[i][2];
-      for (; m < n3-1; m++) slist[m] = slist[m+1];
+      for (; m < n3 - 1; m++)
+        slist[m] = slist[m + 1];
       nspecial[i][0]--;
       nspecial[i][1]--;
       nspecial[i][2]--;
@@ -592,38 +674,47 @@ void FixExtrusion::post_integrate()
       //printf ("third assignment remove: %d %d\n", tag[i], tag[j]);
       final_to_remove[i] = tag[j];
       final_to_remove[j] = tag[i];
-      if (tag[i] < tag[j]) nbreak++;
-      }
+      if (tag[i] < tag[j])
+        nbreak++;
+    }
   }
 
-//.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  
-//.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  
-//.  .  .  .  .  Now loops over bonds will be formed .  .  .  .  .  .  . 
-//.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  
-//.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  . 
-  ncreate=0;
-  for (i = 0; i < nlocal; i++) {
-    if (to_add[i] == 0) continue;
+  //.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .
+  //.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .
+  //.  .  .  .  .  Now loops over bonds will be formed .  .  .  .  .  .  .
+  //.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .
+  //.  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .
+  ncreate = 0;
+  for (i = 0; i < nlocal; i++)
+  {
+    if (to_add[i] == 0)
+      continue;
     j = atom->map(to_add[i]);
-    if (to_add[j] != tag[i]) continue;
-    if (num_bond[i] == atom->bond_per_atom) continue;
-    if (to_add[i] < tag[i]) {
+    if (to_add[j] != tag[i])
+      continue;
+    if (num_bond[i] == atom->bond_per_atom)
+      continue;
+    if (to_add[i] < tag[i])
+    {
       lb = to_add[i];
       rb = tag[i];
     }
-    else {
+    else
+    {
       lb = tag[i];
       rb = to_add[i];
     }
     if (
-      (to_remove[atom->map(lb + 1)] == rb &&      to_remove[atom->map(rb)] == lb + 1) || 
-      (to_remove[atom->map(lb + 1)] == rb - 1 &&  to_remove[atom->map(rb - 1)] == lb + 1) || 
-      (to_remove[atom->map(lb)] == rb - 1 &&      to_remove[atom->map(rb - 1)] == lb)) {
+        (to_remove[atom->map(lb + 1)] == rb && to_remove[atom->map(rb)] == lb + 1) ||
+        (to_remove[atom->map(lb + 1)] == rb - 1 && to_remove[atom->map(rb - 1)] == lb + 1) ||
+        (to_remove[atom->map(lb)] == rb - 1 && to_remove[atom->map(rb - 1)] == lb))
+    {
 
-    // if newton_bond is set, only store with I or J
-    // if not newton_bond, store bond with both I and J
-    // atom J will also do this consistently, whatever proc it is on
-      if (num_bond[i] == atom->bond_per_atom){
+      // if newton_bond is set, only store with I or J
+      // if not newton_bond, store bond with both I and J
+      // atom J will also do this consistently, whatever proc it is on
+      if (num_bond[i] == atom->bond_per_atom)
+      {
         printf("problem with bonds %d, %d, %d, proc %d\n", num_bond[i], tag[i], atom->bond_per_atom, me);
         for (int myit = 0; myit < num_bond[i]; myit++)
         {
@@ -631,36 +722,41 @@ void FixExtrusion::post_integrate()
         }
         printf("bond to add %d\n", tag[j]);
         printf("num bonds type 2 %d\n", bondcount[i]);
-        error->one(FLERR,"New bond exceeded bonds per atom in fix extrusion");
+        error->one(FLERR, "New bond exceeded bonds per atom in fix extrusion");
       }
       bond_type[i][num_bond[i]] = btype;
       bond_atom[i][num_bond[i]] = tag[j];
       num_bond[i]++;
 
-    // add a 1-2 neighbor to special bond list for atom I
-    // atom J will also do this, whatever proc it is on
-    // need to first remove tag[j] from later in list if it appears
-    // prevents list from overflowing, will be rebuilt in rebuild_special_one()
+      // add a 1-2 neighbor to special bond list for atom I
+      // atom J will also do this, whatever proc it is on
+      // need to first remove tag[j] from later in list if it appears
+      // prevents list from overflowing, will be rebuilt in rebuild_special_one()
 
       slist = special[i];
       n1 = nspecial[i][0];
       n2 = nspecial[i][1];
       n3 = nspecial[i][2];
       for (m = n1; m < n3; m++)
-        if (slist[m] == tag[j]) break;
-      if (m < n3) {
-        for (n = m; n < n3-1; n++) slist[n] = slist[n+1];
+        if (slist[m] == tag[j])
+          break;
+      if (m < n3)
+      {
+        for (n = m; n < n3 - 1; n++)
+          slist[n] = slist[n + 1];
         n3--;
-        if (m < n2) n2--;
+        if (m < n2)
+          n2--;
       }
       if (n3 == atom->maxspecial)
         error->one(FLERR,
-                  "New bond exceeded special list size in fix extrusion");
-      for (m = n3; m > n1; m--) slist[m] = slist[m-1];
+                   "New bond exceeded special list size in fix extrusion");
+      for (m = n3; m > n1; m--)
+        slist[m] = slist[m - 1];
       slist[n1] = tag[j];
-      nspecial[i][0] = n1+1;
-      nspecial[i][1] = n2+1;
-      nspecial[i][2] = n3+1;
+      nspecial[i][0] = n1 + 1;
+      nspecial[i][1] = n2 + 1;
+      nspecial[i][2] = n3 + 1;
 
       // increment bondcount, convert atom to new type if limit reached
       // atom J will also do this, whatever proc it is on
@@ -671,30 +767,34 @@ void FixExtrusion::post_integrate()
 
       final_to_add[i] = tag[j];
       final_to_add[j] = tag[i];
-      if (tag[i] < tag[j]) ncreate++;
-      }
+      if (tag[i] < tag[j])
+        ncreate++;
+    }
     //printf("final to add: %d, %d\n", tag[i], tag[j]);
   }
 
-
-  MPI_Allreduce(&nbreak,&breakcount,1,MPI_INT,MPI_SUM,world);
-  MPI_Allreduce(&ncreate,&createcount,1,MPI_INT,MPI_SUM,world);
+  MPI_Allreduce(&nbreak, &breakcount, 1, MPI_INT, MPI_SUM, world);
+  MPI_Allreduce(&ncreate, &createcount, 1, MPI_INT, MPI_SUM, world);
   // trigger reneighboring if any shifts happened
   // this insures neigh lists will immediately reflect the topology changes
   // done if no shifts
 
-  if (!breakcount && !createcount) return;
-  else if (breakcount == createcount) next_reneighbor = update->ntimestep;
-  else if (breakcount != createcount) {
+  if (!breakcount && !createcount)
+    return;
+  else if (breakcount == createcount)
+    next_reneighbor = update->ntimestep;
+  else if (breakcount != createcount)
+  {
     printf(" createcount %d, breakcount %d, timestep %d\n", createcount, breakcount, update->ntimestep);
-    for (int b=0; b<nlocal; b++)
+    for (int b = 0; b < nlocal; b++)
     {
-      if (final_to_remove[b] != 0) printf("-$ %d\t%d\t%d\t%d\n", tag[b], final_to_remove[atom->map(final_to_remove[b])], final_to_remove[b], me);
-      if (final_to_add[b] != 0) printf("+$ %d\t%d\t%d\t%d\n", tag[b], final_to_add[atom->map(final_to_add[b])], final_to_add[b], me);
+      if (final_to_remove[b] != 0)
+        printf("-$ %d\t%d\t%d\t%d\n", tag[b], final_to_remove[atom->map(final_to_remove[b])], final_to_remove[b], me);
+      if (final_to_add[b] != 0)
+        printf("+$ %d\t%d\t%d\t%d\n", tag[b], final_to_add[atom->map(final_to_add[b])], final_to_add[b], me);
     }
-    error->all(FLERR,"Numbers of created and broken bonds are not equal");
+    error->all(FLERR, "Numbers of created and broken bonds are not equal");
   }
-  
 
   // communicate final partner and 1-2 special neighbors
   // 1-2 neighs already reflect broken bonds
@@ -708,40 +808,46 @@ void FixExtrusion::post_integrate()
   // check J < 0 to insure a broken bond to unknown atom is included
   //   i.e. bond partner outside of cutoff length
 
-  
   nbreak = 0;
-  for (i = 0; i < nall; i++) {
-    if (final_to_remove[i] == 0) continue;
-      j = atom->map(final_to_remove[i]);
-      if (j < 0 || tag[i] < tag[j]) {
-        if (nbreak == maxbreak) {
-          maxbreak += DELTA;
-          memory->grow(broken,maxbreak,2,"extrusion:broken");
-        }
-        broken[nbreak][0] = tag[i];
-        broken[nbreak][1] = final_to_remove[i];
-        nbreak++;
+  for (i = 0; i < nall; i++)
+  {
+    if (final_to_remove[i] == 0)
+      continue;
+    j = atom->map(final_to_remove[i]);
+    if (j < 0 || tag[i] < tag[j])
+    {
+      if (nbreak == maxbreak)
+      {
+        maxbreak += DELTA;
+        memory->grow(broken, maxbreak, 2, "extrusion:broken");
       }
+      broken[nbreak][0] = tag[i];
+      broken[nbreak][1] = final_to_remove[i];
+      nbreak++;
+    }
   }
 
-
-//update to_add
+  //update to_add
   commflag = 2;
   comm->forward_comm_fix(this);
 
   ncreate = 0;
-  for (i = 0; i < nall; i++) {
-    if (final_to_add[i] == 0) continue;
-      j = atom->map(final_to_add[i]);
-      if (j < 0 || tag[i] < tag[j]) {
-        if (ncreate == maxcreate) {
-          maxcreate += DELTA;
-          memory->grow(created,maxcreate,2,"extrusion:created");
-        }
-        created[ncreate][0] = tag[i];
-        created[ncreate][1] = final_to_add[i];
-        ncreate++;
+  for (i = 0; i < nall; i++)
+  {
+    if (final_to_add[i] == 0)
+      continue;
+    j = atom->map(final_to_add[i]);
+    if (j < 0 || tag[i] < tag[j])
+    {
+      if (ncreate == maxcreate)
+      {
+        maxcreate += DELTA;
+        memory->grow(created, maxcreate, 2, "extrusion:created");
       }
+      created[ncreate][0] = tag[i];
+      created[ncreate][1] = final_to_add[i];
+      ncreate++;
+    }
   }
 
   // update special neigh lists of all atoms affected by any broken bond
@@ -763,7 +869,7 @@ void FixExtrusion::post_integrate()
 
 void FixExtrusion::check_ghosts()
 {
-  int i,j,n;
+  int i, j, n;
   tagint *slist;
 
   int **nspecial = atom->nspecial;
@@ -771,19 +877,23 @@ void FixExtrusion::check_ghosts()
   int nlocal = atom->nlocal;
 
   int flag = 0;
-  for (i = 0; i < nlocal; i++) {
+  for (i = 0; i < nlocal; i++)
+  {
     slist = special[i];
     n = nspecial[i][1];
-    for (j = 0; j < n; j++) {
-      if (atom->map(slist[j]) < 0) flag = 1;
+    for (j = 0; j < n; j++)
+    {
+      if (atom->map(slist[j]) < 0)
+        flag = 1;
     }
     //printf ("\n");
   }
   int flagall;
-  MPI_Allreduce(&flag,&flagall,1,MPI_INT,MPI_SUM,world);
-  if (flagall) {
+  MPI_Allreduce(&flag, &flagall, 1, MPI_INT, MPI_SUM, world);
+  if (flagall)
+  {
     printf("ATTENTION!   %d\n", flagall);
-    error->all(FLERR,"Fix extrusion needs ghost atoms from further away");    
+    error->all(FLERR, "Fix extrusion needs ghost atoms from further away");
   }
   lastcheck = update->ntimestep;
 }
@@ -801,8 +911,8 @@ void FixExtrusion::check_ghosts()
 
 void FixExtrusion::update_topology()
 {
-  int i,j,k,n,influence,influenced,found;
-  tagint id1,id2;
+  int i, j, k, n, influence, influenced, found;
+  tagint id1, id2;
   tagint *slist;
 
   tagint *tag = atom->tag;
@@ -815,56 +925,71 @@ void FixExtrusion::update_topology()
   //  printf(" %d %d,",broken[i][0],broken[i][1]);
   //printf("\n");
 
-  for (i = 0; i < nlocal; i++) {
+  for (i = 0; i < nlocal; i++)
+  {
     influenced = 0;
     slist = special[i];
 
-    for (j = 0; j < nbreak; j++) {
+    for (j = 0; j < nbreak; j++)
+    {
       id1 = broken[j][0];
       id2 = broken[j][1];
 
       influence = 0;
-      if (tag[i] == id1 || tag[i] == id2) influence = 1;
-      else {
+      if (tag[i] == id1 || tag[i] == id2)
+        influence = 1;
+      else
+      {
         n = nspecial[i][2];
         found = 0;
         for (k = 0; k < n; k++)
-          if (slist[k] == id1 || slist[k] == id2) found++;
-        if (found == 2) influence = 1;
+          if (slist[k] == id1 || slist[k] == id2)
+            found++;
+        if (found == 2)
+          influence = 1;
       }
-      if (!influence) continue;
+      if (!influence)
+        continue;
       influenced = 1;
     }
 
-    if (influenced) rebuild_special_one(i);
+    if (influenced)
+      rebuild_special_one(i);
   }
 
-  for (i = 0; i < nlocal; i++) {
+  for (i = 0; i < nlocal; i++)
+  {
     influenced = 0;
     slist = special[i];
 
-    for (j = 0; j < ncreate; j++) {
+    for (j = 0; j < ncreate; j++)
+    {
       id1 = created[j][0];
       id2 = created[j][1];
 
       influence = 0;
-      if (tag[i] == id1 || tag[i] == id2) influence = 1;
-      else {
+      if (tag[i] == id1 || tag[i] == id2)
+        influence = 1;
+      else
+      {
         n = nspecial[i][1];
         for (k = 0; k < n; k++)
-          if (slist[k] == id1 || slist[k] == id2) {
+          if (slist[k] == id1 || slist[k] == id2)
+          {
             influence = 1;
             break;
           }
       }
-      if (!influence) continue;
+      if (!influence)
+        continue;
       influenced = 1;
     }
-    if (influenced) rebuild_special_one(i);
+    if (influenced)
+      rebuild_special_one(i);
   }
 }
 
-  /*
+/*
 
 
   for (i = 0; i < nlocal; i++) {
@@ -907,7 +1032,7 @@ void FixExtrusion::update_topology()
 
 void FixExtrusion::rebuild_special_one(int m)
 {
-  int i,j,n,n1,cn1,cn2,cn3;
+  int i, j, n, n1, cn1, cn2, cn3;
   tagint *slist;
 
   tagint *tag = atom->tag;
@@ -927,43 +1052,47 @@ void FixExtrusion::rebuild_special_one(int m)
   // remove duplicates after adding all possible 1-3 neighs
 
   cn2 = cn1;
-  for (i = 0; i < cn1; i++) {
+  for (i = 0; i < cn1; i++)
+  {
     n = atom->map(copy[i]);
     if (n < 0)
-      error->one(FLERR,"Fix bond/create needs ghost atoms from further away");
+      error->one(FLERR, "Fix bond/create needs ghost atoms from further away");
     slist = special[n];
     n1 = nspecial[n][0];
     for (j = 0; j < n1; j++)
-      if (slist[j] != tag[m]) copy[cn2++] = slist[j];
+      if (slist[j] != tag[m])
+        copy[cn2++] = slist[j];
   }
 
-  cn2 = dedup(cn1,cn2,copy);
+  cn2 = dedup(cn1, cn2, copy);
   if (cn2 > atom->maxspecial)
-    error->one(FLERR,"Special list size exceeded in fix bond/create");
+    error->one(FLERR, "Special list size exceeded in fix bond/create");
   // new 1-4 neighs of atom M, based on 1-2 neighs of 1-3 neighs
   // exclude self
   // remove duplicates after adding all possible 1-4 neighs
 
   cn3 = cn2;
-  for (i = cn1; i < cn2; i++) {
+  for (i = cn1; i < cn2; i++)
+  {
     n = atom->map(copy[i]);
     if (n < 0)
-      error->one(FLERR,"Fix bond/create needs ghost atoms from further away");
+      error->one(FLERR, "Fix bond/create needs ghost atoms from further away");
     slist = special[n];
     n1 = nspecial[n][0];
     for (j = 0; j < n1; j++)
-      if (slist[j] != tag[m]) copy[cn3++] = slist[j];
+      if (slist[j] != tag[m])
+        copy[cn3++] = slist[j];
   }
 
-  cn3 = dedup(cn2,cn3,copy);
+  cn3 = dedup(cn2, cn3, copy);
   if (cn3 > atom->maxspecial)
-    error->one(FLERR,"Special list size exceeded in fix bond/create");
+    error->one(FLERR, "Special list size exceeded in fix bond/create");
   // store new special list with atom M
 
   nspecial[m][0] = cn1;
   nspecial[m][1] = cn2;
   nspecial[m][2] = cn3;
-  memcpy(special[m],copy,cn3*sizeof(int));
+  memcpy(special[m], copy, cn3 * sizeof(int));
 }
 
 /* ----------------------------------------------------------------------
@@ -977,14 +1106,17 @@ int FixExtrusion::dedup(int nstart, int nstop, tagint *copy)
   int i;
 
   int m = nstart;
-  while (m < nstop) {
+  while (m < nstop)
+  {
     for (i = 0; i < m; i++)
-      if (copy[i] == copy[m]) {
-        copy[m] = copy[nstop-1];
+      if (copy[i] == copy[m])
+      {
+        copy[m] = copy[nstop - 1];
         nstop--;
         break;
       }
-    if (i == m) m++;
+    if (i == m)
+      m++;
   }
 
   return nstop;
@@ -994,7 +1126,8 @@ int FixExtrusion::dedup(int nstart, int nstop, tagint *copy)
 
 void FixExtrusion::post_integrate_respa(int ilevel, int /*iloop*/)
 {
-  if (ilevel == nlevels_respa-1) post_integrate();
+  if (ilevel == nlevels_respa - 1)
+    post_integrate();
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1002,22 +1135,26 @@ void FixExtrusion::post_integrate_respa(int ilevel, int /*iloop*/)
 int FixExtrusion::pack_forward_comm(int n, int *list, double *buf,
                                     int /*pbc_flag*/, int * /*pbc*/)
 {
-  int i,j,k,m,ns;
+  int i, j, k, m, ns;
   m = 0;
 
-  if (commflag == 1) { //fbc cf=1
-    for (i = 0; i < n; i++) {
+  if (commflag == 1)
+  { //fbc cf=1
+    for (i = 0; i < n; i++)
+    {
       j = list[i];
       buf[m++] = ubuf(bondcount[j]).d;
     }
     return m;
   }
 
-  if (commflag == 2) { //fbc cf=3
+  if (commflag == 2)
+  { //fbc cf=3
     int **nspecial = atom->nspecial;
     tagint **special = atom->special;
 
-    for (i = 0; i < n; i++) {
+    for (i = 0; i < n; i++)
+    {
       j = list[i];
       buf[m++] = ubuf(final_to_add[j]).d;
       ns = nspecial[j][0];
@@ -1027,11 +1164,13 @@ int FixExtrusion::pack_forward_comm(int n, int *list, double *buf,
     }
     return m;
   }
-  if (commflag == 3) { //fbb cf=2
+  if (commflag == 3)
+  { //fbb cf=2
     int **nspecial = atom->nspecial;
     tagint **special = atom->special;
 
-    for (i = 0; i < n; i++) {
+    for (i = 0; i < n; i++)
+    {
       j = list[i];
       buf[m++] = ubuf(final_to_remove[j]).d;
       ns = nspecial[j][0];
@@ -1041,24 +1180,28 @@ int FixExtrusion::pack_forward_comm(int n, int *list, double *buf,
     }
     return m;
   }
-  
-  if (commflag == 91) { //fbb cf=1
-    for (i = 0; i < n; i++) {
+
+  if (commflag == 91)
+  { //fbb cf=1
+    for (i = 0; i < n; i++)
+    {
       j = list[i];
       buf[m++] = ubuf(to_remove[j]).d;
     }
     return m;
   }
-  
-  if (commflag == 92) { //fbc cf=2
-    for (i = 0; i < n; i++) {
+
+  if (commflag == 92)
+  { //fbc cf=2
+    for (i = 0; i < n; i++)
+    {
       j = list[i];
       buf[m++] = ubuf(to_add[j]).d;
     }
     return m;
   }
 
-  error->all(FLERR,"Wrong commflag in FixExtrusion::pack_forward_comm.");
+  error->all(FLERR, "Wrong commflag in FixExtrusion::pack_forward_comm.");
   return 0;
 }
 
@@ -1066,50 +1209,59 @@ int FixExtrusion::pack_forward_comm(int n, int *list, double *buf,
 
 void FixExtrusion::unpack_forward_comm(int n, int first, double *buf)
 {
-  int i,j,m,ns,last;
-  m=0;
+  int i, j, m, ns, last;
+  m = 0;
   last = first + n;
-  
-  if (commflag == 1) { //fbc cf=1
+
+  if (commflag == 1)
+  { //fbc cf=1
     for (i = first; i < last; i++)
-      bondcount[i] = (int) ubuf(buf[m++]).i;
-  } 
-  
-  if (commflag == 2) { //fbc cf=3
+      bondcount[i] = (int)ubuf(buf[m++]).i;
+  }
+
+  if (commflag == 2)
+  { //fbc cf=3
     int **nspecial = atom->nspecial;
     tagint **special = atom->special;
 
-    for (i = first; i < last; i++) {
-      final_to_add[i] = (tagint) ubuf(buf[m++]).i;
-      ns = (int) ubuf(buf[m++]).i;
+    for (i = first; i < last; i++)
+    {
+      final_to_add[i] = (tagint)ubuf(buf[m++]).i;
+      ns = (int)ubuf(buf[m++]).i;
       nspecial[i][0] = ns;
       for (j = 0; j < ns; j++)
-        special[i][j] = (tagint) ubuf(buf[m++]).i;
+        special[i][j] = (tagint)ubuf(buf[m++]).i;
     }
   }
-  
-  if (commflag == 3) { //fbb cf=2
+
+  if (commflag == 3)
+  { //fbb cf=2
     int **nspecial = atom->nspecial;
     tagint **special = atom->special;
 
-    for (i = first; i < last; i++) {
-      final_to_remove[i] = (tagint) ubuf(buf[m++]).i;
-      ns = (int) ubuf(buf[m++]).i;
+    for (i = first; i < last; i++)
+    {
+      final_to_remove[i] = (tagint)ubuf(buf[m++]).i;
+      ns = (int)ubuf(buf[m++]).i;
       nspecial[i][0] = ns;
       for (j = 0; j < ns; j++)
-        special[i][j] = (tagint) ubuf(buf[m++]).i;
+        special[i][j] = (tagint)ubuf(buf[m++]).i;
     }
   }
-  
-  if (commflag == 91) { //fbb cf=1
-    for (i = first; i < last; i++) {
-      to_remove[i] = (tagint) ubuf(buf[m++]).i;
+
+  if (commflag == 91)
+  { //fbb cf=1
+    for (i = first; i < last; i++)
+    {
+      to_remove[i] = (tagint)ubuf(buf[m++]).i;
     }
   }
-  
-  if (commflag == 92) { //fbc cf=2
-    for (i = first; i < last; i++) {
-      to_add[i] =    (tagint) ubuf(buf[m++]).i;
+
+  if (commflag == 92)
+  { //fbc cf=2
+    for (i = first; i < last; i++)
+    {
+      to_add[i] = (tagint)ubuf(buf[m++]).i;
     }
   }
 }
@@ -1118,51 +1270,61 @@ void FixExtrusion::unpack_forward_comm(int n, int first, double *buf)
 
 int FixExtrusion::pack_reverse_comm(int n, int first, double *buf)
 {
-  int i,m,last;
+  int i, m, last;
 
   m = 0;
   last = first + n;
 
-  if (commflag == 1) { //rbc cf=1
-    for (i = first; i < last; i++) {
+  if (commflag == 1)
+  { //rbc cf=1
+    for (i = first; i < last; i++)
+    {
       buf[m++] = ubuf(bondcount[i]).d;
     }
     return m;
   }
-  
-  if (commflag == 2) { //rbc cf=2
-    for (i = first; i < last; i++) {
+
+  if (commflag == 2)
+  { //rbc cf=2
+    for (i = first; i < last; i++)
+    {
       buf[m++] = ubuf(to_add[i]).d;
       buf[m++] = distsq_c[i];
     }
-  return m;
+    return m;
   }
-  
-  if (commflag == 3) { //rbb cf=1
-    for (i = first; i < last; i++) {
+
+  if (commflag == 3)
+  { //rbb cf=1
+    for (i = first; i < last; i++)
+    {
       //printf("to_remove sends %d\t%d\n", ubuf(to_remove[i]).d,to_remove[i]);
       buf[m++] = ubuf(to_remove[i]).d;
       buf[m++] = distsq_b[i];
     }
-  return m;
+    return m;
   }
 
-  if (commflag == 25) { //rbc cf=2
-    for (i = first; i < last; i++) {
+  if (commflag == 25)
+  { //rbc cf=2
+    for (i = first; i < last; i++)
+    {
       buf[m++] = ubuf(to_add[i]).d;
       buf[m++] = distsq_c[i];
     }
-  return m;
+    return m;
   }
-  
-  if (commflag == 23) {
-    for (i = first; i < last; i++) {
+
+  if (commflag == 23)
+  {
+    for (i = first; i < last; i++)
+    {
       //printf("to_remove sends %d\t%d\n", ubuf(to_remove[i]).d,to_remove[i]);
       buf[m++] = ubuf(recreate[i]).d;
     }
-  return m;
+    return m;
   }
-  error->all(FLERR,"Wrong commflag in FixExtrusion::pack_reverse_comm.");
+  error->all(FLERR, "Wrong commflag in FixExtrusion::pack_reverse_comm.");
   return 0;
 }
 
@@ -1170,60 +1332,79 @@ int FixExtrusion::pack_reverse_comm(int n, int first, double *buf)
 
 void FixExtrusion::unpack_reverse_comm(int n, int *list, double *buf)
 {
-  int i,j,m;
+  int i, j, m;
 
   m = 0;
-  if (commflag == 1) { //rbc cf=1
-    for (i = 0; i < n; i++) {
+  if (commflag == 1)
+  { //rbc cf=1
+    for (i = 0; i < n; i++)
+    {
       j = list[i];
-      bondcount[j] += (int) ubuf(buf[m++]).i;
+      bondcount[j] += (int)ubuf(buf[m++]).i;
     }
   }
-  
-  if (commflag == 2) { //rbc cf=2
-    for (i = 0; i < n; i++) {
+
+  if (commflag == 2)
+  { //rbc cf=2
+    for (i = 0; i < n; i++)
+    {
       j = list[i];
-      if (buf[m+1] < distsq_c[j]) {
-        to_add[j] = (tagint) ubuf(buf[m++]).i;
+      if (buf[m + 1] < distsq_c[j])
+      {
+        to_add[j] = (tagint)ubuf(buf[m++]).i;
         distsq_c[j] = buf[m++];
         //printf("unpack reverse to add %d, %d, %d, %d\n", to_add[j], distsq_c[j], i, j);
-      } 
-      else m+=2;
+      }
+      else
+        m += 2;
     }
   }
-  else if (commflag == 3) { //rbb cf=1
-    for (i = 0; i < n; i++) {
+  else if (commflag == 3)
+  { //rbb cf=1
+    for (i = 0; i < n; i++)
+    {
       j = list[i];
-      if (buf[m+1] > distsq_b[j]) {
+      if (buf[m + 1] > distsq_b[j])
+      {
         //printf("to_remove recieves %d\n",(tagint) ubuf(buf[m+1]).i);
-        to_remove[j] = (tagint) ubuf(buf[m++]).i;
+        to_remove[j] = (tagint)ubuf(buf[m++]).i;
         distsq_b[j] = buf[m++];
-      } else m+=2; 
+      }
+      else
+        m += 2;
     }
   }
-  else if (commflag == 25) { //rbb cf=1
-    for (i = 0; i < n; i++) {
+  else if (commflag == 25)
+  { //rbb cf=1
+    for (i = 0; i < n; i++)
+    {
       j = list[i];
-      if (buf[m+1] < distsq_c[j]) {
+      if (buf[m + 1] < distsq_c[j])
+      {
         //printf("to_remove recieves %d\n",(tagint) ubuf(buf[m+1]).i);
-        to_add[j] = (tagint) ubuf(buf[m++]).i;
+        to_add[j] = (tagint)ubuf(buf[m++]).i;
         distsq_c[j] = buf[m++];
-      } else m+=2; 
+      }
+      else
+        m += 2;
     }
   }
-  else if (commflag == 23) {
-    for (i = 0; i < n; i++) {
+  else if (commflag == 23)
+  {
+    for (i = 0; i < n; i++)
+    {
       j = list[i];
       //if (buf[m] > 0 && recreate[j] > 0) error->all(FLERR,"Overwrite recreate in FixExtrusion::pack_reverse_comm.");
-      if (buf[m] > 0) {
+      if (buf[m] > 0)
+      {
         //printf("to_remove recieves %d\n",(tagint) ubuf(buf[m+1]).i);
-        recreate[j] = (tagint) ubuf(buf[m++]).i;
-      } 
-      else m++;
+        recreate[j] = (tagint)ubuf(buf[m++]).i;
+      }
+      else
+        m++;
     }
   }
 }
-
 
 /* ---------------------------------------------------------------------- */
 
@@ -1233,7 +1414,7 @@ void FixExtrusion::unpack_reverse_comm(int n, int *list, double *buf)
 
 void FixExtrusion::grow_arrays(int nmax)
 {
-  memory->grow(bondcount,nmax,"bond/create:bondcount");
+  memory->grow(bondcount, nmax, "bond/create:bondcount");
 }
 
 /* ----------------------------------------------------------------------
@@ -1261,24 +1442,26 @@ int FixExtrusion::pack_exchange(int i, double *buf)
 
 int FixExtrusion::unpack_exchange(int nlocal, double *buf)
 {
-  bondcount[nlocal] = static_cast<int> (buf[0]);
+  bondcount[nlocal] = static_cast<int>(buf[0]);
   return 1;
 }
 
 /* ---------------------------------------------------------------------- */
 
-
 void FixExtrusion::print_bb()
 {
-  for (int i = 0; i < atom->nlocal; i++) {
-    printf("TAG " TAGINT_FORMAT ": %d nbonds: ",atom->tag[i],atom->num_bond[i]);
-    for (int j = 0; j < atom->num_bond[i]; j++) {
+  for (int i = 0; i < atom->nlocal; i++)
+  {
+    printf("TAG " TAGINT_FORMAT ": %d nbonds: ", atom->tag[i], atom->num_bond[i]);
+    for (int j = 0; j < atom->num_bond[i]; j++)
+    {
       printf(" " TAGINT_FORMAT, atom->bond_atom[i][j]);
     }
     printf("\n");
-    printf("TAG " TAGINT_FORMAT ": %d %d %d nspecial: ",atom->tag[i],
-           atom->nspecial[i][0],atom->nspecial[i][1],atom->nspecial[i][2]);
-    for (int j = 0; j < atom->nspecial[i][2]; j++) {
+    printf("TAG " TAGINT_FORMAT ": %d %d %d nspecial: ", atom->tag[i],
+           atom->nspecial[i][0], atom->nspecial[i][1], atom->nspecial[i][2]);
+    for (int j = 0; j < atom->nspecial[i][2]; j++)
+    {
       printf(" " TAGINT_FORMAT, atom->special[i][j]);
     }
     printf("\n");
@@ -1290,8 +1473,9 @@ void FixExtrusion::print_bb()
 void FixExtrusion::print_copy(const char *str, tagint m,
                               int n1, int n2, int n3, int *v)
 {
-  printf("%s " TAGINT_FORMAT ": %d %d %d nspecial: ",str,m,n1,n2,n3);
-  for (int j = 0; j < n3; j++) printf(" %d",v[j]);
+  printf("%s " TAGINT_FORMAT ": %d %d %d nspecial: ", str, m, n1, n2, n3);
+  for (int j = 0; j < n3; j++)
+    printf(" %d", v[j]);
   printf("\n");
 }
 
@@ -1299,8 +1483,9 @@ void FixExtrusion::print_copy(const char *str, tagint m,
 
 double FixExtrusion::compute_vector(int n)
 {
-  if (n == 0) return (double) breakcount;
-  return (double) breakcounttotal;
+  if (n == 0)
+    return (double)breakcount;
+  return (double)breakcounttotal;
 }
 
 /* ----------------------------------------------------------------------
@@ -1310,7 +1495,7 @@ double FixExtrusion::compute_vector(int n)
 double FixExtrusion::memory_usage()
 {
   int nmax = atom->nmax;
-  double bytes = 2*nmax * sizeof(tagint);
+  double bytes = 2 * nmax * sizeof(tagint);
   bytes += nmax * sizeof(double);
   return bytes;
 }
