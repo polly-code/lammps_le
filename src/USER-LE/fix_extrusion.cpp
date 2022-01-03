@@ -402,7 +402,8 @@ void FixExtrusion::post_integrate()
          atom->type[atom->map(tag[i1] - 1)] == ctcf_left_right ||
          atom->type[atom->map(tag[i1] - 1)] == neutral_type) &&
         (atom->type[atom->map(tag[i1] - 1)] != ctcf_left ||
-         atom->type[atom->map(tag[i1] - 1)] != ctcf_left_right ||
+		 through_prob > random->uniform()) &&
+		(atom->type[atom->map(tag[i1] - 1)] != ctcf_left_right ||
          through_prob > random->uniform()))
     {
       local_left = atom->map(tag[i1] - 1);
@@ -414,7 +415,8 @@ void FixExtrusion::post_integrate()
            atom->type[atom->map(tag[i2] + 1)] == ctcf_left_right ||
            atom->type[atom->map(tag[i2] + 1)] == neutral_type) &&
           (atom->type[atom->map(tag[i2] + 1)] != ctcf_right ||
-           atom->type[atom->map(tag[i2] + 1)] != ctcf_left_right ||
+		   through_prob > random->uniform()) &&
+          (atom->type[atom->map(tag[i2] + 1)] != ctcf_left_right ||
            through_prob > random->uniform()))
       { // move left and right
         local_right = atom->map(tag[i2] + 1);
@@ -474,7 +476,8 @@ void FixExtrusion::post_integrate()
          atom->type[atom->map(tag[i2] + 1)] == ctcf_left_right ||
          atom->type[atom->map(tag[i2] + 1)] == neutral_type) &&
         (atom->type[atom->map(tag[i2] + 1)] != ctcf_right ||
-         atom->type[atom->map(tag[i2] + 1)] != ctcf_left_right ||
+		 through_prob > random->uniform()) &&
+        (atom->type[atom->map(tag[i2] + 1)] != ctcf_left_right ||
          through_prob > random->uniform()))
     {
       local_right = atom->map(tag[i2] + 1);
