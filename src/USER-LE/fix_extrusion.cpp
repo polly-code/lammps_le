@@ -74,11 +74,20 @@ FixExtrusion::FixExtrusion(LAMMPS *lmp, int narg, char **arg) : Fix(lmp, narg, a
   if (btype < 1 || btype > atom->nbondtypes)
     error->all(FLERR, "Invalid atom type in fix extrusion command");
 
-  if (narg == 9)
+  if (narg == 10)
+  {
     ctcf_left_right = utils::inumeric(FLERR, arg[9], false, lmp);
+  }
   else
+  {
     ctcf_left_right = -1;
-  if (ctcf_left_right > atom->nbondtypes)
+  }
+  if (me == 0)
+  {
+    printf("Attention! Type of bidirectional CTCF is %d\n", ctcf_left_right);
+    printf("Amount of args in loop extrusion is %d\n", narg);
+  }
+  if (ctcf_left_right > atom->ntypes)
     error->all(FLERR, "Invalid atom type in fix extrusion command");
   // error check
 
@@ -402,8 +411,8 @@ void FixExtrusion::post_integrate()
          atom->type[atom->map(tag[i1] - 1)] == ctcf_left_right ||
          atom->type[atom->map(tag[i1] - 1)] == neutral_type) &&
         (atom->type[atom->map(tag[i1] - 1)] != ctcf_left ||
-		 through_prob > random->uniform()) &&
-		(atom->type[atom->map(tag[i1] - 1)] != ctcf_left_right ||
+         through_prob > random->uniform()) &&
+        (atom->type[atom->map(tag[i1] - 1)] != ctcf_left_right ||
          through_prob > random->uniform()))
     {
       local_left = atom->map(tag[i1] - 1);
@@ -415,7 +424,7 @@ void FixExtrusion::post_integrate()
            atom->type[atom->map(tag[i2] + 1)] == ctcf_left_right ||
            atom->type[atom->map(tag[i2] + 1)] == neutral_type) &&
           (atom->type[atom->map(tag[i2] + 1)] != ctcf_right ||
-		   through_prob > random->uniform()) &&
+           through_prob > random->uniform()) &&
           (atom->type[atom->map(tag[i2] + 1)] != ctcf_left_right ||
            through_prob > random->uniform()))
       { // move left and right
@@ -476,7 +485,7 @@ void FixExtrusion::post_integrate()
          atom->type[atom->map(tag[i2] + 1)] == ctcf_left_right ||
          atom->type[atom->map(tag[i2] + 1)] == neutral_type) &&
         (atom->type[atom->map(tag[i2] + 1)] != ctcf_right ||
-		 through_prob > random->uniform()) &&
+         through_prob > random->uniform()) &&
         (atom->type[atom->map(tag[i2] + 1)] != ctcf_left_right ||
          through_prob > random->uniform()))
     {
