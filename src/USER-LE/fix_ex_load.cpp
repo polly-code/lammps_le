@@ -372,6 +372,7 @@ void FixExLoad::pre_force(int /*vflag*/)
 void FixExLoad::post_integrate()
 {
   int i, j, k, m, n, ii, jj, inum, jnum, itype, jtype, n1, n2, n3, possible;
+  int bead_left, bead_right;
   double xtmp, ytmp, ztmp, delx, dely, delz, rsq;
   int *ilist, *jlist, *numneigh, **firstneigh;
   tagint *slist;
