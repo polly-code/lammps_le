@@ -37,8 +37,8 @@ using namespace FixConst;
 /* ---------------------------------------------------------------------- */
 
 FixExLoad::FixExLoad(LAMMPS *lmp, int narg, char **arg) : Fix(lmp, narg, arg),
-                                                          bondcount(NULL), partner(NULL), finalpartner(NULL), distsq(NULL),
-                                                          probability(NULL), created(NULL), copy(NULL), random(NULL), list(NULL)
+                                                          bondcount(nullptr), partner(nullptr), finalpartner(nullptr), distsq(nullptr),
+                                                          probability(nullptr), created(nullptr), copy(nullptr), random(nullptr), list(nullptr)
 {
   if (narg < 8)
     error->all(FLERR, "Illegal fix ex_load command");
@@ -79,7 +79,7 @@ FixExLoad::FixExLoad(LAMMPS *lmp, int narg, char **arg) : Fix(lmp, narg, arg),
   jnewtype = jatomtype;
   fraction = 1.0;
   int seed = 12345;
-  atype = dtype = itype = 0;
+  atype = dtype = itype = ctcf_type = 0;
 
   int iarg = 8;
   while (iarg < narg)
@@ -147,6 +147,15 @@ FixExLoad::FixExLoad(LAMMPS *lmp, int narg, char **arg) : Fix(lmp, narg, arg),
         error->all(FLERR, "Illegal fix ex_load command");
       iarg += 2;
     }
+    else if (strcmp(arg[iarg], "ctcf") == 0)
+    {
+      if (iarg + 2 > narg)
+        error->all(FLERR, "Illegal fix ex_load command");
+      ctcf_type = utils::inumeric(FLERR, arg[iarg + 1], false, lmp);
+      if (ctcf_type < 0)
+        error->all(FLERR, "Illegal ctcf type in fix ex_load command");
+      iarg += 2;
+    }
     else
       error->all(FLERR, "Illegal fix ex_load command");
   }
@@ -168,7 +177,7 @@ FixExLoad::FixExLoad(LAMMPS *lmp, int narg, char **arg) : Fix(lmp, narg, arg),
   // register with Atom class
   // bondcount values will be initialized in pre_force() not setup()
 
-  bondcount = NULL;
+  bondcount = nullptr;
   grow_arrays(atom->nmax);
   atom->add_callback(0);
   countflag = 0;
@@ -182,11 +191,11 @@ FixExLoad::FixExLoad(LAMMPS *lmp, int narg, char **arg) : Fix(lmp, narg, arg),
   // allocate arrays local to this fix
 
   nmax = 0;
-  partner = finalpartner = NULL;
-  distsq = NULL;
+  partner = finalpartner = nullptr;
+  distsq = nullptr;
 
   maxcreate = 0;
-  created = NULL;
+  created = nullptr;
 
   // copy = special list for one atom
   // size = ms^2 + ms is sufficient
@@ -242,7 +251,7 @@ void FixExLoad::init()
 
   // check cutoff for iatomtype,jatomtype
 
-  if (force->pair == NULL || cutsq > force->pair->cutsq[iatomtype][jatomtype])
+  if (force->pair == nullptr || cutsq > force->pair->cutsq[iatomtype][jatomtype])
     error->all(FLERR, "Fix ex_load cutoff is longer than pairwise cutoff");
 
   // warn if more than one fix ex_load or also a fix bond/break
@@ -379,25 +388,25 @@ void FixExLoad::post_integrate()
   int i1_2, j1_2;
   bool mid_atom_occupied;
 
-  if ((update->ntimestep) % nevery - 3)
-    return; // 3 to avoid problems with bond break and extrusion
+  if ((update->ntimestep) % nevery)
+    return; // [nevery - 3] to avoid problems with bond break and extrusion
   // count bonds stored with each bond I own
   // if newton bond is not set, just increment count on atom I
   // if newton bond is set, also increment count on atom J even if ghost
   // bondcount is long enough to tally ghost atom counts
 
-  int *num_bond = atom->num_bond;
+  int nall = atom->nlocal + atom->nghost;
   int **bond_type = atom->bond_type;
+  int newton_bond = force->newton_bond;
   tagint **bond_atom = atom->bond_atom;
   int nlocal = atom->nlocal;
-  int nghost = atom->nghost;
-  int nall = nlocal + nghost;
-  int newton_bond = force->newton_bond;
+  int *num_bond = atom->num_bond;
 
   for (i = 0; i < nall; i++)
     bondcount[i] = 0;
 
   for (i = 0; i < nlocal; i++)
+  {
     for (j = 0; j < num_bond[i]; j++)
     {
       if (bond_type[i][j] == btype)
@@ -413,11 +422,12 @@ void FixExLoad::post_integrate()
         }
       }
     }
+  }
 
   // if newton_bond is set, need to sum bondcount
 
   commflag = 1;
-  if (newton_bond)
+  if (force->newton_pair)
     comm->reverse_comm_fix(this, 1);
   // check that all procs have needed ghost atoms within ghost cutoff
   // only if neighbor list has changed since last check
@@ -430,7 +440,6 @@ void FixExLoad::post_integrate()
 
   // acquire updated ghost atom positions
   // necessary b/c are calling this after integrate, but before Verlet comm
-
   comm->forward_comm();
 
   // forward comm of bondcount, so ghosts have it
@@ -454,9 +463,6 @@ void FixExLoad::post_integrate()
     probability = distsq;
   }
 
-  // int nlocal = atom->nlocal;
-  // int nall = atom->nlocal + atom->nghost;
-
   for (i = 0; i < nall; i++)
   {
     partner[i] = 0;
@@ -469,8 +475,6 @@ void FixExLoad::post_integrate()
 
   double **x = atom->x;
   tagint *tag = atom->tag;
-  // tagint **bond_atom = atom->bond_atom;
-  // int *num_bond = atom->num_bond;
   int **nspecial = atom->nspecial;
   tagint **special = atom->special;
   int *mask = atom->mask;
@@ -493,10 +497,6 @@ void FixExLoad::post_integrate()
     ztmp = x[i][2];
     jlist = firstneigh[i];
     jnum = numneigh[i];
-    // for (jj = 0; jj < jnum; jj++) {
-    // if (abs(tag[i]-tag[jlist[jj]])<4) printf (" less than four, %d %d\n", tag[i], tag[jlist[jj]]);
-    //}
-    // scanf("%c",&fake_input);
 
     for (jj = 0; jj < jnum; jj++)
     {
@@ -530,21 +530,31 @@ void FixExLoad::post_integrate()
       if (abs(tag[i] - tag[j]) != 2)
         continue;
 
-      // printf ("bonds of 3:\n %d - %d, %d - %d, %d - %d\n",
-      // tag[i], num_bond[i],
-      // tag[j], num_bond[j],
-      //(tag[i]+tag[j])/2, num_bond[atom->map((tag[i]+tag[j])/2)]);
-
       // two lines below commented because we want to allow multiple bonds starting from a single bead
       // if (num_bond[i] != 2) continue;
       // if (num_bond[j] != 2) continue;
-      if (num_bond[atom->map((tag[i] + tag[j]) / 2)] != 2)
+      if (tag[i] < tag[j])
+      {
+        bead_left = tag[atom->map(tag[i])];
+        bead_right = tag[atom->map(tag[j])];
+      }
+      else
+      {
+        bead_left = tag[atom->map(tag[j])];
+        bead_right = tag[atom->map(tag[i])];
+      }
+      if (bondcount[atom->map(bead_left + 1)] > 0)
         continue;
-      // if (partner[atom->map((tag[i] + tag[j]) / 2)] != 0) continue;
+      if (type[atom->map(bead_left + 1)] == ctcf_type)
+        continue;
 
-      for (k = 0; k < nspecial[i][0]; k++)
-        if (special[i][k] == tag[j])
+      // check if the bond is already exist
+      for (k = 0; k < num_bond[i]; k++)
+        if (bond_atom[i][k] == tag[j])
+        {
           possible = 0;
+          break;
+        }
       if (!possible)
         continue;
 
@@ -555,41 +565,22 @@ void FixExLoad::post_integrate()
       if (rsq >= cutsq)
         continue;
 
-      if (rsq < distsq[i])
+      if ((rsq < distsq[i]) && (rsq < distsq[j]))
       {
         partner[i] = tag[j];
         distsq[i] = rsq;
-      }
-      if (rsq < distsq[j])
-      {
         partner[j] = tag[i];
         distsq[j] = rsq;
       }
 
       // check competitive bonds which are tend to cross each other: like (i, i+2) and (i-1, i+1)
-      if (tag[i] < tag[j])
-      {
-        bead_left = tag[i];
-        bead_right = tag[j];
-      }
-      else
-      {
-        bead_left = tag[j];
-        bead_right = tag[i];
-      }
+      // 1. define the order of beads (already done earlier)
+
+      // 2. check if middle bead is unoccupied
       if (partner[atom->map(bead_left + 1)] != 0)
       {
+        // 3. if it is occupied, compare distances
         if (distsq[atom->map(bead_left)] < distsq[atom->map(bead_left + 1)])
-        {
-          distsq[atom->map(bead_left + 1)] = BIG;
-          partner[atom->map(bead_left + 1)] = 0;
-        }
-        else
-        {
-          distsq[atom->map(bead_left)] = BIG;
-          partner[atom->map(bead_left)] = 0;
-        }
-        if (distsq[atom->map(bead_right)] < distsq[atom->map(bead_left + 1)])
         {
           distsq[atom->map(bead_left + 1)] = BIG;
           partner[atom->map(bead_left + 1)] = 0;
@@ -598,6 +589,8 @@ void FixExLoad::post_integrate()
         {
           distsq[atom->map(bead_right)] = BIG;
           partner[atom->map(bead_right)] = 0;
+          distsq[atom->map(bead_left)] = BIG;
+          partner[atom->map(bead_left)] = 0;
         }
       }
     }
@@ -629,6 +622,51 @@ void FixExLoad::post_integrate()
   //   and probability constraint is satisfied
   // if other atom is owned by another proc, it should do same thing
 
+  // double check that we do not have any intersections
+
+  for (i = 0; i < nlocal; i++)
+  {
+    if (partner[i])
+    {
+      j = partner[i];
+      if (tag[i] < tag[j])
+      {
+        bead_left = tag[i];
+        bead_right = tag[j];
+      }
+      else
+      {
+        bead_left = tag[j];
+        bead_right = tag[i];
+      }
+      // if middle bead is occupied, discard new bond around
+      /*      if (num_bond[atom->map(bead_left + 1)] != 2)
+            {
+              distsq[atom->map(bead_right)] = BIG;
+              partner[atom->map(bead_right)] = 0;
+              distsq[atom->map(bead_left)] = BIG;
+              partner[atom->map(bead_left)] = 0;
+            }
+      */
+      if (partner[atom->map(bead_left + 1)] != 0)
+      {
+        // 3. if it is occupied, compare distances
+        if (distsq[atom->map(bead_left)] < distsq[atom->map(bead_left + 1)])
+        {
+          distsq[atom->map(bead_left + 1)] = BIG;
+          partner[atom->map(bead_left + 1)] = 0;
+        }
+        else
+        {
+          distsq[atom->map(bead_right)] = BIG;
+          partner[atom->map(bead_right)] = 0;
+          distsq[atom->map(bead_left)] = BIG;
+          partner[atom->map(bead_left)] = 0;
+        }
+      }
+    }
+  }
+
   // int **bond_type = atom->bond_type;
   // int newton_bond = force->newton_bond;
 
@@ -638,7 +676,8 @@ void FixExLoad::post_integrate()
     if (partner[i] == 0)
       continue;
     j = atom->map(partner[i]);
-    j = atom->map(tag[j]);
+
+    // j = atom->map(tag[j]);
     if (partner[j] != tag[i])
       continue;
 
@@ -1611,6 +1650,7 @@ void FixExLoad::unpack_forward_comm(int n, int first, double *buf)
     {
       partner[i] = (tagint)ubuf(buf[m++]).i;
       probability[i] = buf[m++];
+      // printf("%f\t%d\n", probability[i], partner[i]);
     }
   }
   else
@@ -1646,13 +1686,15 @@ int FixExLoad::pack_reverse_comm(int n, int first, double *buf)
       buf[m++] = ubuf(bondcount[i]).d;
     return m;
   }
-
-  for (i = first; i < last; i++)
+  else if (commflag == 2)
   {
-    buf[m++] = ubuf(partner[i]).d;
-    buf[m++] = distsq[i];
+    for (i = first; i < last; i++)
+    {
+      buf[m++] = ubuf(partner[i]).d;
+      buf[m++] = distsq[i];
+    }
+    return m;
   }
-  return m;
 }
 
 /* ---------------------------------------------------------------------- */
