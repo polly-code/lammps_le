@@ -26,10 +26,14 @@ To run the code, one needs proper loading and unloading of extruders. There are 
 > fix unloading all ex_unload 7000 2 0.5 prob 0.001 456456
 
 Their syntax is similar to creating and breaking bonds from the MC package from the LAMMPS website.
+
 https://docs.lammps.org/fix_bond_create.html
+
 https://docs.lammps.org/fix_bond_break.html
 
 ## References
 [0]. Plimpton, Steve. "Fast parallel algorithms for short-range molecular dynamics." Journal of computational physics 117.1 (1995): 1-19.
+
 [1]. Fudenberg, Geoffrey, et al. "Formation of chromosomal domains by loop extrusion." Cell reports 15.9 (2016): 2038-2049.
+
 [2]. Mach, Pia, et al. "Live-cell imaging and physical modeling reveal control of chromosome folding dynamics by cohesin and CTCF." BioRxiv (2022).
