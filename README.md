@@ -5,6 +5,14 @@ Loop extrusion is when active ATP-dependent motor (multiprotein complex) cohesin
 ## Mechanics
 We simulate extruders (cohesins) as additional sliding links. With the predefined probability (P1) loop can be initiated between {i, i+2} beads and then every predefined number of steps (N1) we will try to shift it for 1 bead each base: [i, j] -> [i-1, j+1] -> [i-2, j+2] and so on. There is a predefined probability of releasing the extruder from the chain (P2). Extruders cannot pass through each other, stalling until one of them is released.
 We also have three barriers: left, right, and roadblocks. Left barrier blocks loop coming from the right, left barrier blocks loop coming from the left, and roadblock blocks both.
+## Installation
+Installation on linux can be done usin cmake (tested with v.3.15.5). When you are in the folder with the repository, execute these commands in a command line.
+> mkdir build \
+> cd build \
+> cmake -C ../cmake/presets/minimal.cmake -D PKG_MISC=on -D PKG_USER-LE=on -D PKG_MPIIO=on -D PKG_MOLECULE=on -D PKG_MC=on ../cmake \
+> make -j20 \
+
+Now you should have the compiled executable file `lmp`. More detailed information about the installation can be found on the [LAMMPS web-site](https://docs.lammps.org/Install.html).
 ## Fix description
 > fix loop all extrusion 17500 1 2 3 1.0 2 4
 
