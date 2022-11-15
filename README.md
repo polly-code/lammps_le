@@ -10,7 +10,7 @@ Installation on linux can be done usin cmake (tested with v.3.15.5). When you ar
 > mkdir build \
 > cd build \
 > cmake -C ../cmake/presets/minimal.cmake -D PKG_MISC=on -D PKG_USER-LE=on -D PKG_MPIIO=on -D PKG_MOLECULE=on -D PKG_MC=on ../cmake \
-> make -j20 \
+> make -j20 
 
 Now you should have the compiled executable file `lmp`. More detailed information about the installation can be found on the [LAMMPS web-site](https://docs.lammps.org/Install.html).
 ## Fix description
